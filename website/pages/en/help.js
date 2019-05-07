@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7,9 +7,8 @@
  * @format
  */
 
-const React = require('react');
-
 const CompLibrary = require('../../core/CompLibrary.js');
+const React = require('react');
 const Container = CompLibrary.Container;
 const GridBlock = CompLibrary.GridBlock;
 
@@ -28,7 +27,12 @@ class Help extends React.Component {
       },
       {
         content:
-          'Many developers and users idle on Discord in [#relay](https://discord.gg/0ZcbPKXt5bX40xsQ) on [Reactiflux](https://www.reactiflux.com/).',
+          'Many developers and users idle on Slack in the [#relay](https://graphql.slack.com/messages/relay) channel of [the GraphQL Slack community](https://graphql-slack.herokuapp.com/).',
+        title: 'Slack',
+      },
+      {
+        content:
+          'Many users idle on Discord in [#relay](https://discord.gg/0ZcbPKXt5bX40xsQ) on [Reactiflux](https://www.reactiflux.com/).',
         title: 'Discord',
       },
       {

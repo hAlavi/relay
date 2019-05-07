@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,20 +10,21 @@
 
 'use strict';
 
-const RelayInMemoryRecordSource = require('RelayInMemoryRecordSource');
-const RelayModernRecord = require('RelayModernRecord');
-const RelayModernTestUtils = require('RelayModernTestUtils');
-const RelayRecordSourceMutator = require('RelayRecordSourceMutator');
-const RelayRecordSourceProxy = require('RelayRecordSourceProxy');
-const RelayStoreUtils = require('RelayStoreUtils');
-const RelayViewerHandler = require('RelayViewerHandler');
+const RelayInMemoryRecordSource = require('../../../store/RelayInMemoryRecordSource');
+const RelayModernRecord = require('../../../store/RelayModernRecord');
+const RelayModernTestUtils = require('relay-test-utils');
+const RelayRecordSourceMutator = require('../../../mutations/RelayRecordSourceMutator');
+const RelayRecordSourceProxy = require('../../../mutations/RelayRecordSourceProxy');
+const RelayStoreUtils = require('../../../store/RelayStoreUtils');
+const RelayViewerHandler = require('../RelayViewerHandler');
 
-const generateRelayClientID = require('generateRelayClientID');
-const getRelayHandleKey = require('getRelayHandleKey');
+const getRelayHandleKey = require('../../../util/getRelayHandleKey');
+
+const {generateClientID} = require('../../../store/ClientID');
 
 const {ID_KEY, REF_KEY, ROOT_ID, ROOT_TYPE, TYPENAME_KEY} = RelayStoreUtils;
 
-const VIEWER_ID = generateRelayClientID(ROOT_ID, 'viewer');
+const VIEWER_ID = generateClientID(ROOT_ID, 'viewer');
 
 describe('RelayViewerHandler', () => {
   let baseData;
@@ -114,13 +115,13 @@ describe('RelayViewerHandler', () => {
 
   it('copies the handle field from server viewer for mutation data', () => {
     const commentAlias = 'commentCreate{"input":{}}';
-    const commentID = generateRelayClientID(ROOT_ID, commentAlias);
+    const commentID = generateClientID(ROOT_ID, commentAlias);
     const comment = RelayModernRecord.create(
       commentID,
       'CommentCreateResponsePayload',
     );
     baseSource.set(commentID, comment);
-    const viewerID = generateRelayClientID(commentID, 'viewer');
+    const viewerID = generateClientID(commentID, 'viewer');
     const viewer = RelayModernRecord.create(viewerID, 'Viewer');
     RelayModernRecord.setLinkedRecordID(viewer, 'actor', '842472');
     baseSource.set(viewerID, viewer);

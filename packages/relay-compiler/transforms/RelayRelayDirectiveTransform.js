@@ -1,32 +1,26 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayRelayDirectiveTransform
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
+const CompilerContext = require('../core/GraphQLCompilerContext');
+const IRTransformer = require('../core/GraphQLIRTransformer');
+
+const getLiteralArgumentValues = require('../core/getLiteralArgumentValues');
 const invariant = require('invariant');
 
-const {
-  CompilerContext,
-  IRTransformer,
-  getLiteralArgumentValues,
-} = require('graphql-compiler');
-
-import type {Fragment, FragmentSpread} from 'graphql-compiler';
+import type {Fragment, FragmentSpread} from '../core/GraphQLIR';
 
 const RELAY = 'relay';
-const SCHEMA_EXTENSION = `directive @relay(
-  # Marks this fragment spread as being deferrable such that it loads after
-  # other portions of the view.
-  deferrable: Boolean,
-
+const SCHEMA_EXTENSION = `
+directive @relay(
   # Marks a connection field as containing nodes without 'id' fields.
   # This is used to silence the warning when diffing connections.
   isConnectionWithoutNodeID: Boolean,
@@ -43,7 +37,8 @@ const SCHEMA_EXTENSION = `directive @relay(
 
   # Selectively pass variables down into a fragment. Only used in Classic.
   variables: [String!],
-) on FRAGMENT_DEFINITION | FRAGMENT_SPREAD | INLINE_FRAGMENT | FIELD`;
+) on FRAGMENT_DEFINITION | FRAGMENT_SPREAD | INLINE_FRAGMENT | FIELD
+`;
 
 /**
  * A transform that extracts `@relay(plural: Boolean)` directives and converts
@@ -82,31 +77,27 @@ function visitRelayMetadata<T: Fragment | FragmentSpread>(
   };
 }
 
-function fragmentMetadata({plural}): MixedObj {
+function fragmentMetadata({mask, plural}): MixedObj {
   invariant(
     plural === undefined || typeof plural === 'boolean',
     'RelayRelayDirectiveTransform: Expected the "plural" argument to @relay ' +
       'to be a boolean literal if specified.',
   );
-  return {plural};
-}
-
-function fragmentSpreadMetadata({mask, deferrable}): MixedObj {
   invariant(
     mask === undefined || typeof mask === 'boolean',
     'RelayRelayDirectiveTransform: Expected the "mask" argument to @relay ' +
       'to be a boolean literal if specified.',
   );
+  return {mask, plural};
+}
+
+function fragmentSpreadMetadata({mask}): MixedObj {
   invariant(
-    deferrable === undefined || typeof deferrable === 'boolean',
-    'RelayRelayDirectiveTransform: Expected the "deferrable" argument to ' +
-      '@relay to be a boolean literal if specified.',
+    mask === undefined || typeof mask === 'boolean',
+    'RelayRelayDirectiveTransform: Expected the "mask" argument to @relay ' +
+      'to be a boolean literal if specified.',
   );
-  invariant(
-    !(deferrable === true && mask === false),
-    'RelayRelayDirectiveTransform: Cannot unmask a deferrable fragment spread.',
-  );
-  return {mask, deferrable};
+  return {mask};
 }
 
 module.exports = {

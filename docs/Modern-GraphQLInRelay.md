@@ -24,9 +24,9 @@ graphql`
 `;
 ```
 
-The result of using the `graphql` template tag are `GraphQLTaggedNode`s, which are used to define [Query Renderers](./query-renderer), [Fragment Containers](./fragment-container), [Refetch Containers](./refetch-container), [Pagination Containers](./pagination-container), etc.
+The result of using the `graphql` template tag is a `GraphQLTaggedNode`; a runtime representation of the GraphQL document which can be used to define [Query Renderers](./query-renderer), [Fragment Containers](./fragment-container), [Refetch Containers](./refetch-container), [Pagination Containers](./pagination-container), etc.
 
-However, `graphql` template tags are **never executed at runtime**. Instead, they are compiled ahead of time by the [Relay Compiler](#relay-compiler) into generated artifacts that live alongside your source code, and which Relay requires to operate at runtime. The [Relay Babel plugin](./installation-and-setup.html#setup-babel-plugin-relay) will then convert the `graphql` literals in your code into `require()` calls for the generated files.
+Note that `graphql` template tags are **never executed at runtime**. Instead, they are compiled ahead of time by the [Relay Compiler](#relay-compiler) into generated artifacts that live alongside your source code, and which Relay requires to operate at runtime. The [Relay Babel plugin](./installation-and-setup.html#setup-babel-plugin-relay) will then convert the `graphql` literals in your code into `require()` calls for the generated files.
 
 ## Directives
 
@@ -44,7 +44,7 @@ query TodoListQuery($userID: ID) {
 }
 ```
 
-See [Fragment Container docs](./fragment-container.html#passing-arguments-to-a-fragment) for more details.
+See the [Fragment Container docs](./fragment-container.html#passing-arguments-to-a-fragment) for more details.
 
 ### `@argumentDefinitions`
 
@@ -62,31 +62,40 @@ fragment TodoList_list on TodoList @argumentDefinitions(
 }
 ```
 
-See [Fragment Container docs](./fragment-container.html#passing-arguments-to-a-fragment) for more details.
+See the [Fragment Container docs](./fragment-container.html#passing-arguments-to-a-fragment) for more details.
 
 ### `@connection(key: String!, filters: [String])`
 
-When using the [Pagination Container](./pagination-container.html), Relay expects connection fields to be annotated with a `@connection` directive. For more detailed information and example, check out our docs on using `@connection` inside a Pagination Container [`here`](./pagination-container.html#connection).
-
-**Note:** `@connection` is also supported in [compatibility mode](./relay-compat.html)
+When using the [Pagination Container](./pagination-container.html), Relay expects connection fields to be annotated with a `@connection` directive. For more detailed information and an example, check out the [docs on using `@connection` inside a Pagination Container](./pagination-container.html#connection).
 
 ### `@relay(plural: Boolean)`
 
-When defining a fragment, you can use the `@relay(plural: true)` directive to indicate that the fragment is backed by a [GraphQL list](http://graphql.org/learn/schema/#lists-and-non-null), meaning that it will inform Relay that this particular field is an array. For example:
+When defining a fragment for use with a Fragment container, you can use the `@relay(plural: true)` directive to indicate that container expects the prop for that fragment to be a list of items instead of a single item. A query or parent that spreads a `@relay(plural: true)` fragment should do so within a plural field (ie a field backed by a [GraphQL list](http://graphql.org/learn/schema/#lists-and-non-null). For example:
 
 ```javascript
+// Plural fragment definition
 graphql`
 fragment TodoItems_items on TodoItem @relay(plural: true) {
   id
   text
 }`;
+
+// Plural fragment usage: note the parent type is a list of items (`[TodoItem}]`)
+fragment TodoApp_app on App {
+  items {
+    // parent type is a list here
+    ...TodoItem_items
+  }
+}
 ```
 
 ### `@relay(mask: Boolean)`
 
-Relay by default will only expose the data for fields explicitly requested by a [component's fragment](./fragment-container.html#createfragmentcontainer), which is known as [data masking](./thinking-in-relay#data-masking).
+By default Relay will only expose the data for fields explicitly requested by a [component's fragment](./fragment-container.html#createfragmentcontainer), which is known as [data masking](./thinking-in-relay#data-masking).
 
-However, `@relay(mask: false)` can be used to prevent data masking; when including a fragment and annotating it with `@relay(mask: false)`, its data will be available to the parent, recursively including the data from the fields of the referenced fragment.
+However, `@relay(mask: false)` can be used to prevent data masking; when including a fragment and annotating it with `@relay(mask: false)`, its data will be available directly to the parent instead of being masked for a different container.
+
+Applied to a fragment definition, `@relay(mask: false)` changes the generated Flow types to be better usable when the fragment is included with the same directive. The Flow types will no longer be exact objects and no longer contain internal marker fields.
 
 This may be helpful to reduce redundant fragments when dealing with nested or recursive data within a single Component.
 
@@ -96,7 +105,7 @@ In the example below, the `user` prop will include the data for `id` and `name` 
 
 ```javascript
 graphql`
-  fragment Component_internUser on InternUser {
+  fragment Component_internUser on InternUser @relay(mask: false) {
     id
     name
   }
@@ -110,7 +119,7 @@ export default createFragmentContainer(
         manager {
           ...Component_internUser @relay(mask: false)
         }
-        .... on Employee {
+        ... on Employee {
           admins {
             ...Component_internUser @relay(mask: false)
           }
@@ -142,7 +151,23 @@ Will cause a generated file to appear in `./__generated__/MyComponent.graphql`,
 with both runtime artifacts (which help to read and write from the Relay Store)
 and [Flow types](https://flow.org/) to help you write type-safe code.
 
-The Relay Compiler is responsible for generating code as part of a build step which, at runtime, can be used statically. By building the query ahead of time, the client's JS runtime is not responsible for generating a query string, and fields that are duplicated in the query can be merged during the build step, to improve parsing efficiency. If you have the ability to persist queries to your server, the compiler's code generation process provides a convenient time to convert a query or mutation's text into a unique identifier, which can greatly reduce the upload bytes required in some applications.
+The Relay Compiler is responsible for generating code as part of a build step which can then be referenced at runtime. By building the query ahead of time, the Relay's runtime is not responsible for generating a query string, and various optimizations can be performed on the query that could be too expensive at runtime (for example, fields that are duplicated in the query can be merged during the build step, to improve efficiency of processing the GraphQL response).
+
+### Persisting queries
+Relay Compiler supports the use of **persisted queries**, in which each version of a query is associated to a unique ID on the server and the runtime uploads only the persisted ID instead of the full query text. This has several benefits: it can significantly reduce the time to send a query (and the upload bytes) and enables *whitelisting* of queries. For example, you may choose to disallow queries in text form and only allow queries that have been persisted (and that presumably have passed your internal code review process).
+
+Persisted queries can be enabled by instructing Relay Compiler to emit metadata about each query, mutation, and subscription into a JSON file. The generated file will contain a mapping of query identifiers to query text, which you can then save to your server. To enable persisted queries, use the `--persist-output` flag to the compiler:
+
+```js
+"scripts": {
+  "relay": "relay-compiler --src ./src --schema ./schema.graphql --persist-output ./path/to/persisted-queries.json"
+}
+```
+
+Relay Compiler will then create the id => query text mapping in the path you specify. You can then use this complete
+json file in your server side to map query ids to operation text.
+
+For more details, refer to the [Persisted Queries section](./persisted-queries.html).
 
 ### Set up relay-compiler
 
@@ -220,12 +245,11 @@ This would produce three generated files, and two `__generated__` directories:
 * `src/Components/__generated__/DictionaryComponent_definition.graphql.js`
 * `src/Queries/__generated__/DictionaryQuery.graphql.js`
 
-
 ### Importing generated definitions
 
 Typically you will not need to import your generated definitions. The [Relay Babel plugin](./installation-and-setup.html#setup-babel-plugin-relay) will then convert the `graphql` literals in your code into `require()` calls for the generated files.
 
-However the Relay Compiler also automatically generates [Flow](https://flow.org) types as [type comments](https://flow.org/en/docs/types/comments/). For example, you can import the generated flow types like so:
+However the Relay Compiler also automatically generates [Flow](https://flow.org) types as [type comments](https://flow.org/en/docs/types/comments/). For example, you can import the generated Flow types like so:
 
 ```javascript
 import type {DictionaryComponent_word} from './__generated__/DictionaryComponent_word.graphql';
@@ -233,6 +257,6 @@ import type {DictionaryComponent_word} from './__generated__/DictionaryComponent
 
 ### Advanced usage
 
-In addition to the bin script, the `relay-compiler` package also [exports library code](https://github.com/facebook/relay/blob/master/packages/relay-compiler/RelayCompilerPublic.js) which you may use to create more complex configurations for the compiler, or to extend the compiler with your own custom output.
+In addition to the bin script, the `relay-compiler` package also [exports library code](https://github.com/facebook/relay/blob/master/packages/relay-compiler/index.js) which you may use to create more complex configurations for the compiler, or to extend the compiler with your own custom output.
 
-If you find you need to do something unique (like generate types that conform to an older version of flow, or to parse non-javascript source files), you can build your own version of the Compiler by swapping in your own `FileWriter` and `ASTCache`, or by adding on an additional `IRTransform`. Note, the internal APIs of the `RelayCompiler` are under constant iteration, so rolling your own version may lead to incompatibilities with future releases.
+If you find you need to do something unique (like generate types that conform to an older version of Flow, or to parse non-javascript source files), you can build your own version of the Compiler by swapping in your own `FileWriter` and `ASTCache`, or by adding on an additional `IRTransform`. Note, the internal APIs of the `RelayCompiler` are under constant iteration, so rolling your own version may lead to incompatibilities with future releases.

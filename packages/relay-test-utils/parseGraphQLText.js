@@ -1,11 +1,10 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule parseGraphQLText
- * @flow
+ * @flow strict-local
  * @format
  */
 
@@ -14,14 +13,14 @@
 const {extendSchema, parse} = require('graphql');
 const {Parser, convertASTDocuments} = require('relay-compiler');
 
-import type {Fragment, Root} from 'GraphQLIR';
 import type {GraphQLSchema} from 'graphql';
+import type {Fragment, Root} from 'relay-compiler';
 
 function parseGraphQLText(
   schema: GraphQLSchema,
   text: string,
 ): {
-  definitions: Array<Fragment | Root>,
+  definitions: $ReadOnlyArray<Fragment | Root>,
   schema: ?GraphQLSchema,
 } {
   const ast = parse(text);

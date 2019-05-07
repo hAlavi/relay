@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -12,21 +12,16 @@
 'use strict';
 
 const GraphQL = require('graphql');
-const RelayTestSchema = require('RelayTestSchema');
-const RelayValidator = require('RelayValidator');
+const RelayValidator = require('../RelayValidator');
+
+const {TestSchema} = require('relay-test-utils');
 
 function validateString(input) {
   const ast = GraphQL.parse(new GraphQL.Source(input, 'test.graphql'));
   return () => {
-    RelayValidator.validate(ast, RelayTestSchema, RelayValidator.LOCAL_RULES);
+    RelayValidator.validate(ast, TestSchema, RelayValidator.LOCAL_RULES);
   };
 }
-
-test('non-scalar leaf', () => {
-  expect(
-    validateString('fragment Test on User { friends }'),
-  ).toThrowErrorMatchingSnapshot();
-});
 
 test('id alias validation', () => {
   expect(validateString('fragment Test on User { id }')).not.toThrow();

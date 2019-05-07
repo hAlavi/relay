@@ -1,49 +1,47 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule requestRelaySubscription
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayDeclarativeMutationConfig = require('RelayDeclarativeMutationConfig');
+const RelayDeclarativeMutationConfig = require('../mutations/RelayDeclarativeMutationConfig');
 
 const warning = require('warning');
 
-import type {Disposable} from '../util/RelayRuntimeTypes';
-import type {Variables} from '../util/RelayRuntimeTypes';
-import type {DeclarativeMutationConfig} from 'RelayDeclarativeMutationConfig';
-import type {GraphQLTaggedNode} from 'RelayModernGraphQLTag';
-import type {Environment, SelectorStoreUpdater} from 'RelayStoreTypes';
+import type {DeclarativeMutationConfig} from '../mutations/RelayDeclarativeMutationConfig';
+import type {GraphQLTaggedNode} from '../query/RelayModernGraphQLTag';
+import type {Environment, SelectorStoreUpdater} from '../store/RelayStoreTypes';
+import type {Disposable, Variables} from '../util/RelayRuntimeTypes';
 
-export type GraphQLSubscriptionConfig = {|
+export type GraphQLSubscriptionConfig<TSubscriptionPayload> = {|
   configs?: Array<DeclarativeMutationConfig>,
   subscription: GraphQLTaggedNode,
   variables: Variables,
   onCompleted?: ?() => void,
   onError?: ?(error: Error) => void,
-  onNext?: ?(response: ?Object) => void,
+  onNext?: ?(response: ?TSubscriptionPayload) => void,
   updater?: ?SelectorStoreUpdater,
 |};
 
-function requestRelaySubscription(
+function requestRelaySubscription<TSubscriptionPayload>(
   environment: Environment,
-  config: GraphQLSubscriptionConfig,
+  config: GraphQLSubscriptionConfig<TSubscriptionPayload>,
 ): Disposable {
-  const {createOperationSelector, getRequest} = environment.unstable_internal;
+  const {createOperationDescriptor, getRequest} = environment.unstable_internal;
   const subscription = getRequest(config.subscription);
-  if (subscription.operationKind !== 'subscription') {
+  if (subscription.params.operationKind !== 'subscription') {
     throw new Error(
       'requestRelaySubscription: Must use Subscription operation',
     );
   }
   const {configs, onCompleted, onError, onNext, variables} = config;
-  const operation = createOperationSelector(subscription, variables);
+  const operation = createOperationDescriptor(subscription, variables);
 
   warning(
     !(config.updater && configs),
@@ -65,7 +63,11 @@ function requestRelaySubscription(
       updater,
       cacheConfig: {force: true},
     })
-    .map(() => environment.lookup(operation.fragment).data)
+    .map(() => {
+      const data = environment.lookup(operation.fragment, operation).data;
+      // $FlowFixMe
+      return (data: TSubscriptionPayload);
+    })
     .subscribeLegacy({
       onNext,
       onError,

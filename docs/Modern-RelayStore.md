@@ -3,7 +3,7 @@ id: relay-store
 title: Relay Store
 ---
 
-The Relay Store can be used to programatically update client-side data inside [`updater` functions](./mutations.html#using-updater-and-optimisticupdater). The following is a reference of the Relay Store interface.
+The Relay Store can be used to programmatically update client-side data inside [`updater` functions](./mutations.html#using-updater-and-optimisticupdater). The following is a reference of the Relay Store interface.
 
 Table of Contents:
 - [RecordSourceSelectorProxy](#recordsourceselectorproxy)
@@ -194,7 +194,7 @@ const name = viewer.getValue('name', {arg: 'value'});
 
 ### `getLinkedRecord(name: string, arguments?: ?Object): ?RecordProxy`
 
-Retrieves the a record associated with the current record given the field name, as defined by the GraphQL document. Returns a `RecordProxy`.
+Retrieves a record associated with the current record given the field name, as defined by the GraphQL document. Returns a `RecordProxy`.
 
 #### Example
 
@@ -251,7 +251,7 @@ rootField {
 Usage:
 ```javascript
 const rootField = store.getRootField('rootField');
-const nodes = rootField.getLinkedRecord('nodes');
+const nodes = rootField.getLinkedRecords('nodes');
 ```
 
 Optionally, if the linked record takes arguments, you can pass a bag of `variables` as well.
@@ -459,7 +459,7 @@ import {ConnectionHandler} from 'relay-runtime';
 
 // The `friends` connection record can be accessed with:
 const user = store.get(userID);
-const friends = RelayConnectionHandler.getConnection(
+const friends = ConnectionHandler.getConnection(
  user,                        // parent record
  'FriendsFragment_friends'    // connection key
  {orderby: 'firstname'}       // 'filters' that is used to identify the connection
@@ -486,14 +486,14 @@ Given a connection, inserts the edge at the end of the connection, or after the 
 
 ```
 const user = store.get(userID);
-const friends = RelayConnectionHandler.getConnection(user, 'friends');
-const edge = RelayConnectionHandler.createEdge(store, friends, user, 'UserEdge');
+const friends = ConnectionHandler.getConnection(user, 'friends');
+const edge = ConnectionHandler.createEdge(store, friends, user, 'UserEdge');
 
 // No cursor provided, append the edge at the end.
-RelayConnectionHandler.insertEdgeAfter(friends, edge);
+ConnectionHandler.insertEdgeAfter(friends, edge);
 
 // No cursor provided, Insert the edge at the front:
-RelayConnectionHandler.insertEdgeBefore(friends, edge);
+ConnectionHandler.insertEdgeBefore(friends, edge);
 ```
 
 ### `deleteNode(connection: RecordProxy, nodeID: string): void`
@@ -504,6 +504,6 @@ Given a connection, deletes any edges whose id matches the given id.
 
 ```
 const user = store.get(userID);
-const friends = RelayConnectionHandler.getConnection(user, 'friends');
-RelayConnectionHandler.deleteNode(friends, idToDelete);
+const friends = ConnectionHandler.getConnection(user, 'friends');
+ConnectionHandler.deleteNode(friends, idToDelete);
 ```

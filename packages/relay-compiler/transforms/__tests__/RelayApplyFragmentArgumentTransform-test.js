@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,20 +10,19 @@
 
 'use strict';
 
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const GraphQLIRPrinter = require('GraphQLIRPrinter');
-const RelayApplyFragmentArgumentTransform = require('RelayApplyFragmentArgumentTransform');
-const RelayParser = require('RelayParser');
-const RelayTestSchema = require('RelayTestSchema');
+const GraphQLCompilerContext = require('../../core/GraphQLCompilerContext');
+const GraphQLIRPrinter = require('../../core/GraphQLIRPrinter');
+const RelayApplyFragmentArgumentTransform = require('../RelayApplyFragmentArgumentTransform');
+const RelayParser = require('../../core/RelayParser');
 
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
+const {TestSchema, generateTestsFromFixtures} = require('relay-test-utils');
 
 describe('RelayApplyFragmentArgumentTransform', () => {
   generateTestsFromFixtures(
     `${__dirname}/fixtures/apply-fragment-argument-transform`,
     text => {
-      const ast = RelayParser.parse(RelayTestSchema, text);
-      return new GraphQLCompilerContext(RelayTestSchema)
+      const ast = RelayParser.parse(TestSchema, text);
+      return new GraphQLCompilerContext(TestSchema)
         .addAll(ast)
         .applyTransforms([RelayApplyFragmentArgumentTransform.transform])
         .documents()

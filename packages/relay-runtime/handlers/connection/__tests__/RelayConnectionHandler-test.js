@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,20 +10,18 @@
 
 'use strict';
 
-require('configureForRelayOSS');
+const RelayConnectionHandler = require('../RelayConnectionHandler');
+const RelayConnectionInterface = require('../RelayConnectionInterface');
+const RelayInMemoryRecordSource = require('../../../store/RelayInMemoryRecordSource');
+const RelayModernStore = require('../../../store/RelayModernStore');
+const RelayModernTestUtils = require('relay-test-utils');
+const RelayRecordSourceMutator = require('../../../mutations/RelayRecordSourceMutator');
+const RelayRecordSourceProxy = require('../../../mutations/RelayRecordSourceProxy');
+const RelayResponseNormalizer = require('../../../store/RelayResponseNormalizer');
+const RelayStoreUtils = require('../../../store/RelayStoreUtils');
 
-const RelayConnectionHandler = require('RelayConnectionHandler');
-const RelayInMemoryRecordSource = require('RelayInMemoryRecordSource');
-const RelayMarkSweepStore = require('RelayMarkSweepStore');
-const RelayRecordSourceMutator = require('RelayRecordSourceMutator');
-const RelayRecordSourceProxy = require('RelayRecordSourceProxy');
-const RelayResponseNormalizer = require('RelayResponseNormalizer');
-const RelayStoreUtils = require('RelayStoreUtils');
-const RelayModernTestUtils = require('RelayModernTestUtils');
-const RelayConnectionInterface = require('RelayConnectionInterface');
-
-const getRelayHandleKey = require('getRelayHandleKey');
-const simpleClone = require('simpleClone');
+const defaultGetDataID = require('../../../store/defaultGetDataID');
+const getRelayHandleKey = require('../../../util/getRelayHandleKey');
 
 const {
   ID_KEY,
@@ -43,7 +41,7 @@ const {
 } = RelayConnectionInterface.get();
 
 describe('RelayConnectionHandler', () => {
-  const {generateWithTransforms} = RelayModernTestUtils;
+  const {generateWithTransforms, simpleClone} = RelayModernTestUtils;
   let ConnectionQuery;
   let baseData;
   let baseSource;
@@ -61,6 +59,9 @@ describe('RelayConnectionHandler', () => {
         variables,
       },
       payload,
+      {
+        getDataID: defaultGetDataID,
+      },
     );
   }
 
@@ -78,7 +79,7 @@ describe('RelayConnectionHandler', () => {
     sinkData = {};
     sinkSource = new RelayInMemoryRecordSource(sinkData);
     mutator = new RelayRecordSourceMutator(baseSource, sinkSource);
-    proxy = new RelayRecordSourceProxy(mutator);
+    proxy = new RelayRecordSourceProxy(mutator, defaultGetDataID);
 
     ({ConnectionQuery} = generateWithTransforms(
       `
@@ -162,14 +163,14 @@ describe('RelayConnectionHandler', () => {
         handleKey,
       };
       RelayConnectionHandler.update(proxy, payload);
-      const store = new RelayMarkSweepStore(baseSource);
+      const store = new RelayModernStore(baseSource);
       store.publish(sinkSource);
       baseData = simpleClone(baseData);
       baseSource = new RelayInMemoryRecordSource(baseData);
       sinkData = {};
       sinkSource = new RelayInMemoryRecordSource(sinkData);
       mutator = new RelayRecordSourceMutator(baseSource, sinkSource);
-      proxy = new RelayRecordSourceProxy(mutator);
+      proxy = new RelayRecordSourceProxy(mutator, defaultGetDataID);
 
       connection = RelayConnectionHandler.getConnection(
         proxy.get('4'),
@@ -293,14 +294,14 @@ describe('RelayConnectionHandler', () => {
         handleKey,
       };
       RelayConnectionHandler.update(proxy, payload);
-      const store = new RelayMarkSweepStore(baseSource);
+      const store = new RelayModernStore(baseSource);
       store.publish(sinkSource);
       baseData = simpleClone(baseData);
       baseSource = new RelayInMemoryRecordSource(baseData);
       sinkData = {};
       sinkSource = new RelayInMemoryRecordSource(sinkData);
       mutator = new RelayRecordSourceMutator(baseSource, sinkSource);
-      proxy = new RelayRecordSourceProxy(mutator);
+      proxy = new RelayRecordSourceProxy(mutator, defaultGetDataID);
 
       connection = RelayConnectionHandler.getConnection(
         proxy.get('4'),
@@ -427,14 +428,14 @@ describe('RelayConnectionHandler', () => {
         handleKey,
       };
       RelayConnectionHandler.update(proxy, payload);
-      const store = new RelayMarkSweepStore(baseSource);
+      const store = new RelayModernStore(baseSource);
       store.publish(sinkSource);
       baseData = simpleClone(baseData);
       baseSource = new RelayInMemoryRecordSource(baseData);
       sinkData = {};
       sinkSource = new RelayInMemoryRecordSource(sinkData);
       mutator = new RelayRecordSourceMutator(baseSource, sinkSource);
-      proxy = new RelayRecordSourceProxy(mutator);
+      proxy = new RelayRecordSourceProxy(mutator, defaultGetDataID);
 
       connection = RelayConnectionHandler.getConnection(
         proxy.get('4'),
@@ -735,14 +736,14 @@ describe('RelayConnectionHandler', () => {
           handleKey,
         };
         RelayConnectionHandler.update(proxy, payload);
-        const store = new RelayMarkSweepStore(baseSource);
+        const store = new RelayModernStore(baseSource);
         store.publish(sinkSource);
         baseData = simpleClone(baseData);
         baseSource = new RelayInMemoryRecordSource(baseData);
         sinkData = {};
         sinkSource = new RelayInMemoryRecordSource(sinkData);
         mutator = new RelayRecordSourceMutator(baseSource, sinkSource);
-        proxy = new RelayRecordSourceProxy(mutator);
+        proxy = new RelayRecordSourceProxy(mutator, defaultGetDataID);
       });
 
       it('appends new edges', () => {
@@ -979,7 +980,9 @@ describe('RelayConnectionHandler', () => {
               'client:4:__ConnectionQuery_friends_connection(orderby:["first name"]):pageInfo',
             [TYPENAME_KEY]: 'PageInfo',
             [END_CURSOR]: 'cursor:0',
+            [HAS_PREV_PAGE]: false,
             [HAS_NEXT_PAGE]: true,
+            [START_CURSOR]: 'cursor:0',
           },
         });
       });

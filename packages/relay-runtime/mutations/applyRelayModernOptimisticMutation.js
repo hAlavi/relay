@@ -1,25 +1,24 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule applyRelayModernOptimisticMutation
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayDeclarativeMutationConfig = require('RelayDeclarativeMutationConfig');
+const RelayDeclarativeMutationConfig = require('./RelayDeclarativeMutationConfig');
 
 const invariant = require('invariant');
-const isRelayModernEnvironment = require('isRelayModernEnvironment');
+const isRelayModernEnvironment = require('../store/isRelayModernEnvironment');
 
+import type {GraphQLTaggedNode} from '../query/RelayModernGraphQLTag';
+import type {Environment, SelectorStoreUpdater} from '../store/RelayStoreTypes';
 import type {Disposable, Variables} from '../util/RelayRuntimeTypes';
-import type {DeclarativeMutationConfig} from 'RelayDeclarativeMutationConfig';
-import type {GraphQLTaggedNode} from 'RelayModernGraphQLTag';
-import type {Environment, SelectorStoreUpdater} from 'RelayStoreTypes';
+import type {DeclarativeMutationConfig} from './RelayDeclarativeMutationConfig';
 
 export type OptimisticMutationConfig = {|
   configs?: ?Array<DeclarativeMutationConfig>,
@@ -39,17 +38,17 @@ function applyRelayModernOptimisticMutation(
 ): Disposable {
   invariant(
     isRelayModernEnvironment(environment),
-    'commitRelayModernMutation: expect `environment` to be an instance of ' +
+    'commitRelayModernMutation: expected `environment` to be an instance of ' +
       '`RelayModernEnvironment`.',
   );
-  const {createOperationSelector, getRequest} = environment.unstable_internal;
+  const {createOperationDescriptor, getRequest} = environment.unstable_internal;
   const mutation = getRequest(config.mutation);
-  if (mutation.operationKind !== 'mutation') {
+  if (mutation.params.operationKind !== 'mutation') {
     throw new Error('commitRelayModernMutation: Expected mutation operation');
   }
   let {optimisticUpdater} = config;
   const {configs, optimisticResponse, variables} = config;
-  const operation = createOperationSelector(mutation, variables);
+  const operation = createOperationDescriptor(mutation, variables);
   if (configs) {
     ({optimisticUpdater} = RelayDeclarativeMutationConfig.convert(
       configs,

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13,7 +13,7 @@
 describe('scope', () => {
   let GraphQL;
   let RelayCompilerScope;
-  let RelayTestSchema;
+  let TestSchema;
 
   let GraphQLNonNull;
   let getFragmentScope;
@@ -25,13 +25,13 @@ describe('scope', () => {
     jest.resetModules();
 
     GraphQL = require('graphql');
-    RelayCompilerScope = require('RelayCompilerScope');
-    RelayTestSchema = require('RelayTestSchema');
+    RelayCompilerScope = require('../RelayCompilerScope');
+    ({TestSchema} = require('relay-test-utils'));
 
     ({GraphQLNonNull} = GraphQL);
     ({getFragmentScope, getRootScope} = RelayCompilerScope);
 
-    optionalIntType = RelayTestSchema.getType('Int');
+    optionalIntType = TestSchema.getType('Int');
     requiredIntType = new GraphQLNonNull(optionalIntType);
   });
 
@@ -109,7 +109,20 @@ describe('scope', () => {
       const outerScope = {
         outerSize: {kind: 'Variable', name: 'var'},
       };
-      const innerScope = getFragmentScope(definitions, calls, outerScope);
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
+      );
       expect(innerScope).toEqual({
         size: outerScope.outerSize,
       });
@@ -141,7 +154,20 @@ describe('scope', () => {
       const outerScope = {
         outerSize: {kind: 'Literal', value: 42},
       };
-      const innerScope = getFragmentScope(definitions, calls, outerScope);
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
+      );
       expect(innerScope).toEqual({
         size: outerScope.outerSize,
       });
@@ -172,7 +198,20 @@ describe('scope', () => {
         },
       ];
       const outerScope = {};
-      const innerScope = getFragmentScope(definitions, calls, outerScope);
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
+      );
       expect(innerScope).toEqual({
         size: literal,
       });
@@ -196,7 +235,20 @@ describe('scope', () => {
       ];
       const calls = [];
       const outerScope = {};
-      const innerScope = getFragmentScope(definitions, calls, outerScope);
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
+      );
       expect(innerScope).toEqual({
         size: literal,
       });
@@ -219,12 +271,17 @@ describe('scope', () => {
       ];
       const calls = [];
       const outerScope = {};
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
       expect(() => {
-        getFragmentScope(definitions, calls, outerScope);
-      }).toThrow(
-        'RelayCompilerScope: No value found for required argument ' +
-          '`$size: Int!`.',
-      );
+        getFragmentScope(definitions, calls, outerScope, fragmentSpread);
+      }).toThrowErrorMatchingSnapshot();
     });
 
     /**
@@ -243,10 +300,25 @@ describe('scope', () => {
       ];
       const calls = [];
       const outerScope = {};
-      const innerScope = getFragmentScope(definitions, calls, outerScope);
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
+      );
       expect(innerScope).toEqual({
         size: {
           kind: 'Variable',
+          metadata: null,
+          type: requiredIntType,
           variableName: 'size',
         },
       });
@@ -278,13 +350,66 @@ describe('scope', () => {
         },
       ];
       const outerScope = {};
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
       expect(() => {
-        getFragmentScope(definitions, calls, outerScope);
-      }).toThrow(
-        'RelayCompilerScope: Unexpected argument for global variable `size`. ' +
-          '@arguments may only be provided for variables defined in the ' +
-          "fragment's @argumentDefinitions list.",
+        getFragmentScope(definitions, calls, outerScope, fragmentSpread);
+      }).toThrowErrorMatchingSnapshot();
+    });
+
+    /**
+     * defs: size: Int = 42
+     * args: unknown: 42
+     * parentScope: n/a
+     * => {size: 42} // ignore unknown variables
+     */
+    it('ignores unknown arguments', () => {
+      const definitions = [
+        {
+          kind: 'LocalArgumentDefinition',
+          name: 'size',
+          type: requiredIntType,
+          defaultValue: 42,
+        },
+      ];
+      const calls = [
+        {
+          kind: 'Argument',
+          name: 'unknown',
+          value: {
+            kind: 'Literal',
+            value: 42,
+          },
+          type: requiredIntType,
+        },
+      ];
+      const outerScope = {};
+      const fragmentSpread = {
+        args: calls,
+        directives: [],
+        kind: 'FragmentSpread',
+        loc: {kind: 'Unknown'},
+        metadata: null,
+        name: '<name>',
+      };
+      const innerScope = getFragmentScope(
+        definitions,
+        calls,
+        outerScope,
+        fragmentSpread,
       );
+      expect(innerScope).toEqual({
+        size: {
+          kind: 'Literal',
+          value: 42,
+        },
+      });
     });
   });
 });

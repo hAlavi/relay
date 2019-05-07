@@ -1,43 +1,55 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayCore
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayModernFragmentSpecResolver = require('RelayModernFragmentSpecResolver');
+const RelayModernFragmentSpecResolver = require('./RelayModernFragmentSpecResolver');
 
 const warning = require('warning');
 
-const {getFragment, getRequest} = require('RelayModernGraphQLTag');
-const {createOperationSelector} = require('RelayModernOperationSelector');
+const {
+  getFragment,
+  getPaginationFragment,
+  getRefetchableFragment,
+  getRequest,
+  isFragment,
+  isRequest,
+} = require('../query/RelayModernGraphQLTag');
+const {createOperationDescriptor} = require('./RelayModernOperationDescriptor');
 const {
   areEqualSelectors,
+  getDataIDsFromFragment,
   getDataIDsFromObject,
+  getSingularSelector,
+  getPluralSelector,
   getSelector,
-  getSelectorList,
   getSelectorsFromObject,
+  getVariablesFromSingularFragment,
+  getVariablesFromPluralFragment,
+  getVariablesFromFragment,
   getVariablesFromObject,
-} = require('RelayModernSelector');
+} = require('./RelayModernSelector');
 
-import type {FragmentMap, RelayContext} from 'RelayStoreTypes';
+import type {Props} from '../util/RelayCombinedEnvironmentTypes';
 import type {
+  FragmentMap,
   FragmentSpecResolver,
-  Props,
-} from 'react-relay/classic/environment/RelayCombinedEnvironmentTypes';
+  RelayContext,
+} from './RelayStoreTypes';
 
 function createFragmentSpecResolver(
   context: RelayContext,
   containerName: string,
   fragments: FragmentMap,
   props: Props,
-  callback: () => void,
+  callback?: () => void,
 ): FragmentSpecResolver {
   if (__DEV__) {
     const fragmentNames = Object.keys(fragments);
@@ -64,12 +76,21 @@ function createFragmentSpecResolver(
 module.exports = {
   areEqualSelectors,
   createFragmentSpecResolver,
-  createOperationSelector,
+  createOperationDescriptor,
+  getDataIDsFromFragment,
   getDataIDsFromObject,
   getFragment,
+  getPaginationFragment,
+  getRefetchableFragment,
   getRequest,
+  getSingularSelector,
+  getPluralSelector,
   getSelector,
-  getSelectorList,
   getSelectorsFromObject,
+  getVariablesFromSingularFragment,
+  getVariablesFromPluralFragment,
+  getVariablesFromFragment,
   getVariablesFromObject,
+  isFragment,
+  isRequest,
 };

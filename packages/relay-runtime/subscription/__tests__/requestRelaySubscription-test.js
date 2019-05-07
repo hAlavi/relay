@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -11,12 +11,13 @@
 
 'use strict';
 
-const requestRelaySubscription = require('requestRelaySubscription');
+const requestRelaySubscription = require('../requestRelaySubscription');
 
-const {createMockEnvironment} = require('RelayModernMockEnvironment');
-const {createOperationSelector} = require('RelayModernOperationSelector');
-const {generateAndCompile} = require('RelayModernTestUtils');
-const {ROOT_ID} = require('RelayStoreUtils');
+const {
+  createOperationDescriptor,
+} = require('../../store/RelayModernOperationDescriptor');
+const {ROOT_ID} = require('../../store/RelayStoreUtils');
+const {createMockEnvironment, generateAndCompile} = require('relay-test-utils');
 
 describe('requestRelaySubscription-test', () => {
   it('Config: `RANGE_ADD`', () => {
@@ -72,10 +73,13 @@ describe('requestRelaySubscription-test', () => {
         },
       },
     };
-    const operationSelector = createOperationSelector(FeedbackCommentQuery, {
-      id: feedbackId,
-    });
-    environment.commitPayload(operationSelector, payload);
+    const operationDescriptor = createOperationDescriptor(
+      FeedbackCommentQuery,
+      {
+        id: feedbackId,
+      },
+    );
+    environment.commitPayload(operationDescriptor, payload);
 
     const {CommentCreateSubscription} = generateAndCompile(`
       subscription CommentCreateSubscription(

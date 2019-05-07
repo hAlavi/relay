@@ -16,23 +16,16 @@
       "pagination-container",
       "mutations",
       "subscriptions",
-      "relay-store"
+      "relay-store",
+      "fetch-query"
     ],
     "Guides": [
       "routing",
       "relay-debugging",
-      "graphql-server-specification"
-    ],
-    "Migration Guides": [
-      "new-in-relay-modern",
-      "relay-compat",
-      "migration-setup",
-      "conversion-playbook",
-      "conversion-scripts",
-      "upgrading-setvariables",
-      "converting-mutations",
-      "compatibility-cheatsheet",
-      "api-cheatsheet"
+      "graphql-server-specification",
+      "persisted-queries",
+      "type-emission",
+      "testing-relay-components"
     ],
     "Principles & Architecture": [
       "thinking-in-graphql",
@@ -41,6 +34,9 @@
       "compiler-architecture",
       "runtime-architecture",
       "videos"
+    ],
+    "Community": [
+      "community-learning-resources"
     ]
   }
 }

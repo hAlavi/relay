@@ -1,26 +1,25 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayRecordProxy
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
-const generateRelayClientID = require('generateRelayClientID');
 const invariant = require('invariant');
 
-const {getStableStorageKey} = require('RelayStoreUtils');
+const {generateClientID} = require('../store/ClientID');
+const {getStableStorageKey} = require('../store/RelayStoreUtils');
 
-import type RelayRecordSourceMutator from 'RelayRecordSourceMutator';
-import type RelayRecordSourceProxy from 'RelayRecordSourceProxy';
-import type {DataID} from 'RelayRuntime';
-import type {RecordProxy} from 'RelayStoreTypes';
-import type {Arguments} from 'RelayStoreUtils';
+import type {RecordProxy} from '../store/RelayStoreTypes';
+import type {Arguments} from '../store/RelayStoreUtils';
+import type {DataID} from '../util/RelayRuntimeTypes';
+import type RelayRecordSourceMutator from './RelayRecordSourceMutator';
+import type RelayRecordSourceProxy from './RelayRecordSourceProxy';
 
 /**
  * @internal
@@ -108,7 +107,7 @@ class RelayRecordProxy implements RecordProxy {
     let linkedRecord = this.getLinkedRecord(name, args);
     if (!linkedRecord) {
       const storageKey = getStableStorageKey(name, args);
-      const clientID = generateRelayClientID(this.getDataID(), storageKey);
+      const clientID = generateClientID(this.getDataID(), storageKey);
       linkedRecord = this._source.create(clientID, typeName);
       this.setLinkedRecord(linkedRecord, name, args);
     }

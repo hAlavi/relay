@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,13 +10,11 @@
 
 'use strict';
 
-const RelayInMemoryRecordSource = require('RelayInMemoryRecordSource');
-const RelayModernTestUtils = require('RelayModernTestUtils');
-const RelayRecordSourceMutator = require('RelayRecordSourceMutator');
-const RelayRecordState = require('RelayRecordState');
-const RelayStoreUtils = require('RelayStoreUtils');
-
-const simpleClone = require('simpleClone');
+const RelayInMemoryRecordSource = require('../../store/RelayInMemoryRecordSource');
+const RelayModernTestUtils = require('relay-test-utils');
+const RelayRecordSourceMutator = require('../../mutations/RelayRecordSourceMutator');
+const RelayRecordState = require('../../store/RelayRecordState');
+const RelayStoreUtils = require('../../store/RelayStoreUtils');
 
 const {
   ID_KEY,
@@ -86,7 +84,7 @@ describe('RelayRecordSourceMutator', () => {
     };
     backupData = {};
     sinkData = {};
-    baseData = simpleClone(initialData);
+    baseData = RelayModernTestUtils.simpleClone(initialData);
     baseSource = new RelayInMemoryRecordSource(baseData);
     backupSource = new RelayInMemoryRecordSource(backupData);
     sinkSource = new RelayInMemoryRecordSource(sinkData);
@@ -96,6 +94,73 @@ describe('RelayRecordSourceMutator', () => {
       sinkSource,
       backupSource,
     );
+  });
+
+  describe('unstable_getRawRecordWithChanges', () => {
+    it('returns newly created records', () => {
+      mutator.create('sea', 'Page');
+      mutator.setValue('sea', 'name', 'Seattle');
+      const record = mutator.unstable_getRawRecordWithChanges('sea');
+      expect(record).toEqual({
+        [ID_KEY]: 'sea',
+        [TYPENAME_KEY]: 'Page',
+        name: 'Seattle',
+      });
+      expect(Object.isFrozen(record)).toBe(true);
+    });
+
+    it('returns newly created records that are deleted in the base', () => {
+      mutator.create('deleted', 'Page');
+      mutator.setValue('deleted', 'name', 'Somewhere');
+      const record = mutator.unstable_getRawRecordWithChanges('deleted');
+      expect(record).toEqual({
+        [ID_KEY]: 'deleted',
+        [TYPENAME_KEY]: 'Page',
+        name: 'Somewhere',
+      });
+      expect(Object.isFrozen(record)).toBe(true);
+    });
+
+    it('returns updated records', () => {
+      mutator.setValue('nyc', 'alias', 'NYC');
+      mutator.setValue('nyc', 'timezone', 'EAST');
+      const record = mutator.unstable_getRawRecordWithChanges('nyc');
+      expect(record).toEqual({
+        [ID_KEY]: 'nyc', // existing field
+        [TYPENAME_KEY]: 'Page', // existing field
+        name: 'New York', // existing field
+        alias: 'NYC', // added
+        timezone: 'EAST', // updated
+      });
+      expect(Object.isFrozen(record)).toBe(true);
+    });
+
+    it('returns existing (unmodified) records', () => {
+      const record = mutator.unstable_getRawRecordWithChanges('nyc');
+      expect(record).toEqual({
+        [ID_KEY]: 'nyc',
+        [TYPENAME_KEY]: 'Page',
+        name: 'New York',
+        timezone: 'East Time Zone',
+      });
+      expect(Object.isFrozen(record)).toBe(true);
+    });
+
+    it('returns undefined for unknown records', () => {
+      const record = mutator.unstable_getRawRecordWithChanges('<unknown>');
+      expect(record).toEqual(undefined);
+    });
+
+    it('returns null for already deleted records', () => {
+      const record = mutator.unstable_getRawRecordWithChanges('deleted');
+      expect(record).toEqual(null);
+    });
+
+    it('returns null for newly deleted records', () => {
+      mutator.delete('mpk');
+      const record = mutator.unstable_getRawRecordWithChanges('mpk');
+      expect(record).toEqual(null);
+    });
   });
 
   describe('copyFields()', () => {
@@ -236,7 +301,6 @@ describe('RelayRecordSourceMutator', () => {
         sf: {
           [ID_KEY]: 'sf',
           [TYPENAME_KEY]: 'Page',
-          name: 'San Francisco',
           state: 'California',
         },
       });

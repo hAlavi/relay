@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,18 +10,17 @@
 
 'use strict';
 
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const GraphQLIRTransformer = require('GraphQLIRTransformer');
-const RelayTestSchema = require('RelayTestSchema');
+const GraphQLCompilerContext = require('../GraphQLCompilerContext');
+const GraphQLIRTransformer = require('../GraphQLIRTransformer');
 
-const parseGraphQLText = require('parseGraphQLText');
+const {TestSchema, parseGraphQLText} = require('relay-test-utils');
 
 describe('GraphQLIRTransformer', () => {
   it('visits all node types', () => {
     const {definitions} = parseGraphQLText(
-      RelayTestSchema,
+      TestSchema,
       `
-   query TestQuery($id: ID!) {
+   query TestQuery($id: ID!, $condition: Boolean = false) {
      node(id: $id) {
        ...on User {
          id
@@ -57,17 +56,19 @@ describe('GraphQLIRTransformer', () => {
    }
 
    fragment PhotoFragment on Image @argumentDefinitions(
-     id: {type: "ID", nonNull: true}
-     sizes: {type: "Int", list: true, defaultValue: [32, 64, 128]}
+     id: {type: "ID"}
+     sizes: {type: "[Int]", defaultValue: [32, 64, 128]}
      scale: {type: "Int"}
    ) {
      uri
    }
+
+   fragment Foo on User @argumentDefinitions(localId: {type: "ID!"}){
+     id
+   }
  `,
     );
-    const context = new GraphQLCompilerContext(RelayTestSchema).addAll(
-      definitions,
-    );
+    const context = new GraphQLCompilerContext(TestSchema).addAll(definitions);
 
     const astKinds = [
       'Argument',

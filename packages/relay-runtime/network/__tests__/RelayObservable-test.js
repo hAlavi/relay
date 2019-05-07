@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,9 +10,7 @@
 
 'use strict';
 
-require('configureForRelayOSS');
-
-const RelayObservable = require('RelayObservable');
+const RelayObservable = require('../RelayObservable');
 
 jest.useFakeTimers();
 
@@ -1545,6 +1543,67 @@ describe('RelayObservable', () => {
     });
   });
 
+  describe('fromPromise', () => {
+    it('Cleans up when unsubscribed', () => {
+      let resolve;
+      const observer = {
+        complete: jest.fn(),
+        error: jest.fn(),
+        next: jest.fn(),
+        start: jest.fn(),
+        unsubscribe: jest.fn(),
+      };
+      const x = new Promise(_resolve => (resolve = _resolve));
+      const subscription = RelayObservable.from(x).subscribe(observer);
+      subscription.unsubscribe();
+      resolve();
+      jest.runAllTimers();
+      expect(observer.complete).toBeCalledTimes(0);
+      expect(observer.error).toBeCalledTimes(0);
+      expect(observer.next).toBeCalledTimes(0);
+      expect(observer.start).toBeCalledTimes(1);
+      expect(observer.unsubscribe).toBeCalledTimes(1);
+    });
+
+    it('Calls next and complete when the promise resolves', () => {
+      const observer = {
+        complete: jest.fn(),
+        error: jest.fn(),
+        next: jest.fn(),
+        start: jest.fn(),
+        unsubscribe: jest.fn(),
+      };
+      const value = {};
+      RelayObservable.from(Promise.resolve(value)).subscribe(observer);
+      jest.runAllTimers();
+      expect(observer.complete).toBeCalledTimes(1);
+      expect(observer.error).toBeCalledTimes(0);
+      expect(observer.next).toBeCalledTimes(1);
+      expect(observer.next.mock.calls[0][0]).toBe(value);
+      expect(observer.start).toBeCalledTimes(1);
+      expect(observer.unsubscribe).toBeCalledTimes(0);
+    });
+
+    it('Calls error when the promise rejects', () => {
+      const observer = {
+        complete: jest.fn(),
+        error: jest.fn(),
+        next: jest.fn(),
+        start: jest.fn(),
+        unsubscribe: jest.fn(),
+      };
+      const error = new Error();
+      RelayObservable.from(Promise.reject(error)).subscribe(observer);
+      jest.runAllTimers();
+      expect(observer.complete).toBeCalledTimes(0);
+      expect(observer.error).toBeCalledTimes(1);
+      expect(observer.error.mock.calls[0][0]).toBe(error);
+      expect(observer.next).toBeCalledTimes(0);
+      expect(observer.start).toBeCalledTimes(1);
+      expect(observer.unsubscribe).toBeCalledTimes(0);
+    });
+  });
+
   describe('fromLegacy', () => {
     it('Converts a legacy Relay observe API into an Observable', () => {
       const list = [];
@@ -2496,11 +2555,13 @@ describe('RelayObservable', () => {
         return () => list.push('cleanup second');
       });
 
-      const sub = obs1.catch(() => obs2).subscribe({
-        next: val => list.push('next:' + val),
-        error: err => list.push(err),
-        complete: () => list.push('complete'),
-      });
+      const sub = obs1
+        .catch(() => obs2)
+        .subscribe({
+          next: val => list.push('next:' + val),
+          error: err => list.push(err),
+          complete: () => list.push('complete'),
+        });
 
       sink1.next(1);
       sub.unsubscribe();
@@ -2525,11 +2586,13 @@ describe('RelayObservable', () => {
         return () => list.push('cleanup second');
       });
 
-      const sub = obs1.catch(() => obs2).subscribe({
-        next: val => list.push('next:' + val),
-        error: err => list.push(err),
-        complete: () => list.push('complete'),
-      });
+      const sub = obs1
+        .catch(() => obs2)
+        .subscribe({
+          next: val => list.push('next:' + val),
+          error: err => list.push(err),
+          complete: () => list.push('complete'),
+        });
 
       sink1.next(1);
       sink1.error(new Error());
@@ -2557,12 +2620,14 @@ describe('RelayObservable', () => {
         return () => list.push('cleanup');
       });
 
-      obs.finally(() => list.push('finally')).subscribe({
-        next: val => list.push('next:' + val),
-        error: () => list.push('error'),
-        complete: () => list.push('complete'),
-        unsubscribe: () => list.push('unsubscribe'),
-      });
+      obs
+        .finally(() => list.push('finally'))
+        .subscribe({
+          next: val => list.push('next:' + val),
+          error: () => list.push('error'),
+          complete: () => list.push('complete'),
+          unsubscribe: () => list.push('unsubscribe'),
+        });
 
       expect(list).toEqual(['next:1', 'complete', 'cleanup', 'finally']);
     });
@@ -2575,12 +2640,14 @@ describe('RelayObservable', () => {
         return () => list.push('cleanup');
       });
 
-      obs.finally(() => list.push('finally')).subscribe({
-        next: val => list.push('next:' + val),
-        error: () => list.push('error'),
-        complete: () => list.push('complete'),
-        unsubscribe: () => list.push('unsubscribe'),
-      });
+      obs
+        .finally(() => list.push('finally'))
+        .subscribe({
+          next: val => list.push('next:' + val),
+          error: () => list.push('error'),
+          complete: () => list.push('complete'),
+          unsubscribe: () => list.push('unsubscribe'),
+        });
 
       expect(list).toEqual(['error', 'cleanup', 'finally']);
     });
@@ -2593,12 +2660,14 @@ describe('RelayObservable', () => {
         return () => list.push('cleanup');
       });
 
-      const sub = obs.finally(() => list.push('finally')).subscribe({
-        next: val => list.push('next:' + val),
-        error: () => list.push('error'),
-        complete: () => list.push('complete'),
-        unsubscribe: () => list.push('unsubscribe'),
-      });
+      const sub = obs
+        .finally(() => list.push('finally'))
+        .subscribe({
+          next: val => list.push('next:' + val),
+          error: () => list.push('error'),
+          complete: () => list.push('complete'),
+          unsubscribe: () => list.push('unsubscribe'),
+        });
 
       sub.unsubscribe();
 

@@ -1,21 +1,20 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayQueryResponseCache
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
 const invariant = require('invariant');
-const stableCopy = require('stableCopy');
+const stableCopy = require('../util/stableCopy');
 
 import type {Variables} from '../util/RelayRuntimeTypes';
-import type {GraphQLResponse} from 'RelayNetworkTypes';
+import type {GraphQLResponse} from './RelayNetworkTypes';
 
 type Response = {
   fetchTime: number,
@@ -61,7 +60,16 @@ class RelayQueryResponseCache {
       }
     });
     const response = this._responses.get(cacheKey);
-    return response != null ? response.payload : null;
+    return response != null
+      ? // $FlowFixMe
+        ({
+          ...response.payload,
+          extensions: {
+            ...response.payload.extensions,
+            cacheTimestamp: response.fetchTime,
+          },
+        }: GraphQLResponse)
+      : null;
   }
 
   set(queryID: string, variables: Variables, payload: GraphQLResponse): void {

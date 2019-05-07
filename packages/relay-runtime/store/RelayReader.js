@@ -1,56 +1,63 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayReader
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
-const RelayConcreteNode = require('RelayConcreteNode');
-const RelayModernRecord = require('RelayModernRecord');
-const RelayStoreUtils = require('RelayStoreUtils');
+const RelayModernRecord = require('./RelayModernRecord');
 
 const invariant = require('invariant');
 
-import type {DataID, Variables} from '../util/RelayRuntimeTypes';
-import type {
-  ConcreteDeferrableFragmentSpread,
-  ConcreteFragmentSpread,
-  ConcreteLinkedField,
-  ConcreteNode,
-  ConcreteScalarField,
-  ConcreteSelection,
-  ConcreteSelectableNode,
-} from 'RelayConcreteNode';
-import type {RecordSource, Selector, Snapshot} from 'RelayStoreTypes';
-import type {
-  Record,
-  SelectorData,
-} from 'react-relay/classic/environment/RelayCombinedEnvironmentTypes';
-
 const {
   CONDITION,
-  DEFERRABLE_FRAGMENT_SPREAD,
+  CLIENT_EXTENSION,
   FRAGMENT_SPREAD,
   INLINE_FRAGMENT,
   LINKED_FIELD,
+  MODULE_IMPORT,
   SCALAR_FIELD,
-} = RelayConcreteNode;
+} = require('../util/RelayConcreteNode');
 const {
   FRAGMENTS_KEY,
+  FRAGMENT_OWNER_KEY,
+  FRAGMENT_PROP_NAME_KEY,
   ID_KEY,
+  MODULE_COMPONENT_KEY,
   getArgumentValues,
   getStorageKey,
-} = RelayStoreUtils;
+} = require('./RelayStoreUtils');
 
-function read(recordSource: RecordSource, selector: Selector): Snapshot {
+import type {
+  ReaderFragment,
+  ReaderFragmentSpread,
+  ReaderLinkedField,
+  ReaderModuleImport,
+  ReaderNode,
+  ReaderScalarField,
+  ReaderSelection,
+} from '../util/ReaderNode';
+import type {Record, SelectorData} from '../util/RelayCombinedEnvironmentTypes';
+import type {DataID, Variables} from '../util/RelayRuntimeTypes';
+import type {
+  OperationDescriptor,
+  ReaderSelector,
+  RecordSource,
+  Snapshot,
+} from './RelayStoreTypes';
+
+function read(
+  recordSource: RecordSource,
+  selector: ReaderSelector,
+  owner?: ?OperationDescriptor,
+): Snapshot {
   const {dataID, node, variables} = selector;
-  const reader = new RelayReader(recordSource, variables);
+  const reader = new RelayReader(recordSource, variables, owner ?? null);
   return reader.read(node, dataID);
 }
 
@@ -61,14 +68,22 @@ class RelayReader {
   _recordSource: RecordSource;
   _seenRecords: {[dataID: DataID]: ?Record};
   _variables: Variables;
+  _isMissingData: boolean;
+  _owner: OperationDescriptor | null;
 
-  constructor(recordSource: RecordSource, variables: Variables) {
+  constructor(
+    recordSource: RecordSource,
+    variables: Variables,
+    owner: OperationDescriptor | null,
+  ) {
     this._recordSource = recordSource;
     this._seenRecords = {};
+    this._isMissingData = false;
     this._variables = variables;
+    this._owner = owner;
   }
 
-  read(node: ConcreteSelectableNode, dataID: DataID): Snapshot {
+  read(node: ReaderFragment, dataID: DataID): Snapshot {
     const data = this._traverse(node, dataID, null);
     return {
       data,
@@ -76,17 +91,22 @@ class RelayReader {
       node,
       seenRecords: this._seenRecords,
       variables: this._variables,
+      isMissingData: this._isMissingData,
+      owner: this._owner,
     };
   }
 
   _traverse(
-    node: ConcreteNode,
+    node: ReaderNode,
     dataID: DataID,
     prevData: ?SelectorData,
   ): ?SelectorData {
     const record = this._recordSource.get(dataID);
     this._seenRecords[dataID] = record;
     if (record == null) {
+      if (record === undefined) {
+        this._isMissingData = true;
+      }
       return record;
     }
     const data = prevData || {};
@@ -104,65 +124,84 @@ class RelayReader {
   }
 
   _traverseSelections(
-    selections: Array<ConcreteSelection>,
+    selections: $ReadOnlyArray<ReaderSelection>,
     record: Record,
     data: SelectorData,
   ): void {
-    selections.forEach(selection => {
-      if (selection.kind === SCALAR_FIELD) {
-        this._readScalar(selection, record, data);
-      } else if (selection.kind === LINKED_FIELD) {
-        if (selection.plural) {
-          this._readPluralLink(selection, record, data);
-        } else {
-          this._readLink(selection, record, data);
-        }
-      } else if (selection.kind === CONDITION) {
-        const conditionValue = this._getVariableValue(selection.condition);
-        if (conditionValue === selection.passingValue) {
+    for (let i = 0; i < selections.length; i++) {
+      const selection = selections[i];
+      switch (selection.kind) {
+        case SCALAR_FIELD:
+          this._readScalar(selection, record, data);
+          break;
+        case LINKED_FIELD:
+          if (selection.plural) {
+            this._readPluralLink(selection, record, data);
+          } else {
+            this._readLink(selection, record, data);
+          }
+          break;
+        case CONDITION:
+          const conditionValue = this._getVariableValue(selection.condition);
+          if (conditionValue === selection.passingValue) {
+            this._traverseSelections(selection.selections, record, data);
+          }
+          break;
+        case INLINE_FRAGMENT:
+          const typeName = RelayModernRecord.getType(record);
+          if (typeName != null && typeName === selection.type) {
+            this._traverseSelections(selection.selections, record, data);
+          }
+          break;
+        case FRAGMENT_SPREAD:
+          this._createFragmentPointer(selection, record, data);
+          break;
+        case MODULE_IMPORT:
+          this._readModuleImport(selection, record, data);
+          break;
+        case CLIENT_EXTENSION:
+          const isMissingData = this._isMissingData;
           this._traverseSelections(selection.selections, record, data);
-        }
-      } else if (selection.kind === INLINE_FRAGMENT) {
-        const typeName = RelayModernRecord.getType(record);
-        if (typeName != null && typeName === selection.type) {
-          this._traverseSelections(selection.selections, record, data);
-        }
-      } else if (selection.kind === FRAGMENT_SPREAD) {
-        this._createFragmentPointer(selection, record, data, this._variables);
-      } else if (selection.kind === DEFERRABLE_FRAGMENT_SPREAD) {
-        this._createDeferrableFragmentPointer(selection, record, data);
-      } else {
-        invariant(
-          false,
-          'RelayReader(): Unexpected ast kind `%s`.',
-          selection.kind,
-        );
+          this._isMissingData = isMissingData;
+          break;
+        default:
+          (selection: empty);
+          invariant(
+            false,
+            'RelayReader(): Unexpected ast kind `%s`.',
+            selection.kind,
+          );
       }
-    });
+    }
   }
 
   _readScalar(
-    field: ConcreteScalarField,
+    field: ReaderScalarField,
     record: Record,
     data: SelectorData,
   ): void {
-    const applicationName = field.alias || field.name;
+    const applicationName = field.alias ?? field.name;
     const storageKey = getStorageKey(field, this._variables);
     const value = RelayModernRecord.getValue(record, storageKey);
+    if (value === undefined) {
+      this._isMissingData = true;
+    }
     data[applicationName] = value;
   }
 
   _readLink(
-    field: ConcreteLinkedField,
+    field: ReaderLinkedField,
     record: Record,
     data: SelectorData,
   ): void {
-    const applicationName = field.alias || field.name;
+    const applicationName = field.alias ?? field.name;
     const storageKey = getStorageKey(field, this._variables);
     const linkedID = RelayModernRecord.getLinkedRecordID(record, storageKey);
-
     if (linkedID == null) {
       data[applicationName] = linkedID;
+      if (linkedID === undefined) {
+        this._isMissingData = true;
+      }
       return;
     }
 
@@ -175,20 +214,26 @@ class RelayReader {
       RelayModernRecord.getDataID(record),
       prevData,
     );
+    /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+     * suppresses an error found when Flow v0.98 was deployed. To see the error
+     * delete this comment and run Flow. */
     data[applicationName] = this._traverse(field, linkedID, prevData);
   }
 
   _readPluralLink(
-    field: ConcreteLinkedField,
+    field: ReaderLinkedField,
     record: Record,
     data: SelectorData,
   ): void {
-    const applicationName = field.alias || field.name;
+    const applicationName = field.alias ?? field.name;
     const storageKey = getStorageKey(field, this._variables);
     const linkedIDs = RelayModernRecord.getLinkedRecordIDs(record, storageKey);
 
     if (linkedIDs == null) {
       data[applicationName] = linkedIDs;
+      if (linkedIDs === undefined) {
+        this._isMissingData = true;
+      }
       return;
     }
 
@@ -204,6 +249,12 @@ class RelayReader {
     const linkedArray = prevData || [];
     linkedIDs.forEach((linkedID, nextIndex) => {
       if (linkedID == null) {
+        if (linkedID === undefined) {
+          this._isMissingData = true;
+        }
+        /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+         * suppresses an error found when Flow v0.98 was deployed. To see the
+         * error delete this comment and run Flow. */
         linkedArray[nextIndex] = linkedID;
         return;
       }
@@ -216,20 +267,58 @@ class RelayReader {
         RelayModernRecord.getDataID(record),
         prevItem,
       );
-      const linkedItem = this._traverse(field, linkedID, prevItem);
-      linkedArray[nextIndex] = linkedItem;
+      /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+       * suppresses an error found when Flow v0.98 was deployed. To see the
+       * error delete this comment and run Flow. */
+      linkedArray[nextIndex] = this._traverse(field, linkedID, prevItem);
     });
     data[applicationName] = linkedArray;
   }
 
-  _createFragmentPointer(
-    fragmentSpread: ConcreteFragmentSpread | ConcreteDeferrableFragmentSpread,
+  /**
+   * Reads a ReaderModuleImport, which was generated from using the @module
+   * directive.
+   */
+  _readModuleImport(
+    moduleImport: ReaderModuleImport,
     record: Record,
     data: SelectorData,
-    variables: Variables,
+  ): void {
+    // Determine the component module from the store: if the field is missing
+    // it means we don't know what component to render the match with.
+    const component = RelayModernRecord.getValue(record, MODULE_COMPONENT_KEY);
+    if (component == null) {
+      if (component === undefined) {
+        this._isMissingData = true;
+      }
+      return;
+    }
+
+    // Otherwise, read the fragment and module associated to the concrete
+    // type, and put that data with the result:
+    // - For the matched fragment, create the relevant fragment pointer and add
+    //   the expected fragmentPropName
+    // - For the matched module, create a reference to the module
+    this._createFragmentPointer(
+      {
+        kind: 'FragmentSpread',
+        name: moduleImport.fragmentName,
+        args: null,
+      },
+      record,
+      data,
+    );
+    data[FRAGMENT_PROP_NAME_KEY] = moduleImport.fragmentPropName;
+    data[MODULE_COMPONENT_KEY] = component;
+  }
+
+  _createFragmentPointer(
+    fragmentSpread: ReaderFragmentSpread,
+    record: Record,
+    data: SelectorData,
   ): void {
     let fragmentPointers = data[FRAGMENTS_KEY];
-    if (!fragmentPointers) {
+    if (fragmentPointers == null) {
       fragmentPointers = data[FRAGMENTS_KEY] = {};
     }
     invariant(
@@ -237,26 +326,16 @@ class RelayReader {
       'RelayReader: Expected fragment spread data to be an object, got `%s`.',
       fragmentPointers,
     );
-    data[ID_KEY] = data[ID_KEY] || RelayModernRecord.getDataID(record);
+    if (data[ID_KEY] == null) {
+      data[ID_KEY] = RelayModernRecord.getDataID(record);
+    }
+    /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+     * suppresses an error found when Flow v0.98 was deployed. To see the error
+     * delete this comment and run Flow. */
     fragmentPointers[fragmentSpread.name] = fragmentSpread.args
-      ? getArgumentValues(fragmentSpread.args, variables)
+      ? getArgumentValues(fragmentSpread.args, this._variables)
       : {};
-  }
-
-  _createDeferrableFragmentPointer(
-    deferrableFragment: ConcreteDeferrableFragmentSpread,
-    record: Record,
-    data: SelectorData,
-  ): void {
-    const rootFieldValue = RelayModernRecord.getValue(
-      record,
-      deferrableFragment.storageKey,
-    );
-    const variables = {
-      ...this._variables,
-      [deferrableFragment.rootFieldVariable]: rootFieldValue,
-    };
-    this._createFragmentPointer(deferrableFragment, record, data, variables);
+    data[FRAGMENT_OWNER_KEY] = this._owner;
   }
 }
 

@@ -1,11 +1,10 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayRuntimeTypes
- * @flow
+ * @flow strict
  * @format
  */
 
@@ -29,12 +28,14 @@ export type DataID = string;
 // Variables
 export type Variables = {[name: string]: $FlowFixMe};
 
-export type RerunParam = {
-  param: string,
-  import?: ?string,
-  target?: ?string,
-  max_runs: number,
-};
+/**
+ * Generated operation flow types are subtypes of this.
+ */
+export type OperationType = {|
+  // TODO(T33395812) Make this an open object type
+  +variables: Variables,
+  +response: mixed,
+|};
 
 /**
  * Settings for how a query response may be cached.
@@ -43,13 +44,16 @@ export type RerunParam = {
  *   state of any configured response cache.
  * - `poll`: causes a query to live update by polling at the specified interval
  *   in milliseconds. (This value will be passed to setTimeout.)
- * - `rerunParamExperimental`: causes the query to be run with the experimental
- *   batch API on Network interfaces and GraphQL servers that support it.
+ * - `liveConfigId`: causes a query to live update by calling GraphQLLiveQuery,
+ *   it represents a configuration of gateway when doing live query
  * - `metadata`: user-supplied metadata.
+ * - `transactionId`: a user-supplied value, intended for use as a unique id for
+ *   a given instance of executing an operation.
  */
 export type CacheConfig = {
   force?: ?boolean,
   poll?: ?number,
-  rerunParamExperimental?: ?RerunParam,
+  liveConfigId?: ?string,
   metadata?: {[key: string]: mixed},
+  transactionId?: ?string,
 };

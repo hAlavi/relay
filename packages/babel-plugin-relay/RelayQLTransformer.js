@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -33,9 +33,7 @@ const {
   KnownTypeNamesRule,
   PossibleFragmentSpreadsRule,
   ValuesOfCorrectTypeRule,
-  VariablesDefaultValueAllowedRule,
   VariablesInAllowedPositionRule,
-  ProvidedNonNullArgumentsRule,
 } = require('graphql');
 
 import type {RelayQLDefinition} from './RelayQLAST';
@@ -242,10 +240,6 @@ class RelayQLTransformer {
       documentName,
       document.definitions.length,
     );
-    const definition = document.definitions[0];
-    const isMutation =
-      definition.kind === 'OperationDefinition' &&
-      definition.operation === 'mutation';
 
     const validator = this.options.validator;
     let validationErrors;
@@ -259,12 +253,8 @@ class RelayQLTransformer {
         KnownTypeNamesRule,
         PossibleFragmentSpreadsRule,
         ValuesOfCorrectTypeRule,
-        VariablesDefaultValueAllowedRule,
         VariablesInAllowedPositionRule,
       ];
-      if (!isMutation) {
-        rules.push(ProvidedNonNullArgumentsRule);
-      }
       validationErrors = validate(this.schema, document, rules);
     }
 

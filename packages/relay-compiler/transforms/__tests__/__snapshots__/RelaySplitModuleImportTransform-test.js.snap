@@ -1,0 +1,69 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`RelayMatchTransform matches expected output: module-in-match-field.graphql 1`] = `
+~~~~~~~~~~ INPUT ~~~~~~~~~~
+fragment NameRendererFragment on User {
+  id
+  nameRenderer @match {
+    ...PlainUserNameRenderer_name @module(name: "PlainUserNameRenderer.react")
+    ...MarkdownUserNameRenderer_name
+      @module(name: "MarkdownUserNameRenderer.react")
+  }
+}
+
+fragment PlainUserNameRenderer_name on PlainUserNameRenderer {
+  plaintext
+  data {
+    text
+  }
+}
+
+fragment MarkdownUserNameRenderer_name on MarkdownUserNameRenderer {
+  markdown
+  data {
+    markup
+  }
+}
+
+~~~~~~~~~~ OUTPUT ~~~~~~~~~~
+fragment NameRendererFragment on User {
+  id
+  nameRenderer(supported: ["PlainUserNameRenderer", "MarkdownUserNameRenderer"]) {
+    ... on PlainUserNameRenderer {
+      ...PlainUserNameRenderer_name
+      __module_operation: js(module: "PlainUserNameRenderer_name$normalization.graphql")
+      __module_component: js(module: "PlainUserNameRenderer.react")
+    }
+    ... on MarkdownUserNameRenderer {
+      ...MarkdownUserNameRenderer_name
+      __module_operation: js(module: "MarkdownUserNameRenderer_name$normalization.graphql")
+      __module_component: js(module: "MarkdownUserNameRenderer.react")
+    }
+  }
+}
+
+fragment PlainUserNameRenderer_name on PlainUserNameRenderer {
+  plaintext
+  data {
+    text
+  }
+}
+
+fragment MarkdownUserNameRenderer_name on MarkdownUserNameRenderer {
+  markdown
+  data {
+    markup
+  }
+}
+
+SplitOperation PlainUserNameRenderer_name$normalization on PlainUserNameRenderer {
+  ...PlainUserNameRenderer_name
+  __module_operation: js(module: "PlainUserNameRenderer_name$normalization.graphql")
+}
+
+SplitOperation MarkdownUserNameRenderer_name$normalization on MarkdownUserNameRenderer {
+  ...MarkdownUserNameRenderer_name
+  __module_operation: js(module: "MarkdownUserNameRenderer_name$normalization.graphql")
+}
+
+`;

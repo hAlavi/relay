@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -766,7 +766,7 @@ module.exports = function(t: any, options: PrinterOptions): Function {
             'You defined a `node(%s: %s)` field on type `%s`, but Relay requires ' +
               'the `node` field to be defined on the root type. See the Object ' +
               'Identification Guide: \n' +
-              'http://facebook.github.io/relay/docs/graphql-object-identification.html',
+              'https://facebook.github.io/relay/docs/en/graphql-server-specification.html#object-identification',
             ID,
             argNames[0] && argTypes[argNames[0]].getName({modifiers: true}),
             parentType.getName({modifiers: false}),
@@ -957,7 +957,6 @@ module.exports = function(t: any, options: PrinterOptions): Function {
   }
 
   function identify(str: string): Printable {
-    // $FlowFixMe
     return str.split('.').reduce((acc, name) => {
       if (!acc) {
         return t.identifier(name);

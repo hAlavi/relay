@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,15 +10,14 @@
 
 'use strict';
 
-const RelayModernTestUtils = require('RelayModernTestUtils');
+const fetchRelayModernQuery = require('../fetchRelayModernQuery');
 
-const fetchRelayModernQuery = require('fetchRelayModernQuery');
-
-const {createMockEnvironment} = require('RelayModernMockEnvironment');
-const {createOperationSelector} = require('RelayModernOperationSelector');
+const {
+  createOperationDescriptor,
+} = require('../../store/RelayModernOperationDescriptor');
+const {createMockEnvironment, generateAndCompile} = require('relay-test-utils');
 
 describe('fetchRelayModernQuery', () => {
-  const {generateAndCompile} = RelayModernTestUtils;
   let cacheConfig;
   let environment;
   let operation;
@@ -29,8 +28,7 @@ describe('fetchRelayModernQuery', () => {
     jest.resetModules();
 
     environment = createMockEnvironment();
-    ({ActorQuery: query} = generateAndCompile(
-      `
+    ({ActorQuery: query} = generateAndCompile(`
       query ActorQuery($fetchSize: Boolean!) {
         me {
           name
@@ -39,10 +37,9 @@ describe('fetchRelayModernQuery', () => {
           }
         }
       }
-    `,
-    ));
+    `));
     variables = {fetchSize: false};
-    operation = createOperationSelector(query, variables);
+    operation = createOperationDescriptor(query, variables);
   });
 
   it('fetches the query', () => {

@@ -1,10 +1,9 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule dedupeJSONStringify
  * @flow
  * @format
  */
@@ -17,6 +16,10 @@
  * the same objects for the duplicate subtrees.
  */
 function dedupeJSONStringify(jsonValue: mixed): string {
+  // Clone the object to convert references to the same object instance into
+  // copies. This is needed for the WeakMap/Map to recognize them as duplicates.
+  // $FlowFixMe(>=0.95.0) JSON.stringify can return undefined
+  jsonValue = JSON.parse(JSON.stringify(jsonValue));
   const metadataForHash = new Map();
   const metadataForVal = new WeakMap();
   const varDefs = [];
@@ -97,7 +100,7 @@ function dedupeJSONStringify(jsonValue: mixed): string {
           metadata.varName = 'v' + varDefs.length;
           varDefs.push(metadata.varName + ' = ' + refCode);
         }
-        return metadata.varName;
+        return '(' + metadata.varName + '/*: any*/)';
       }
     }
     let str;

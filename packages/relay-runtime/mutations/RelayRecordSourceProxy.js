@@ -1,37 +1,37 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayRecordSourceProxy
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayModernRecord = require('RelayModernRecord');
-const RelayRecordProxy = require('RelayRecordProxy');
-const RelayRecordSourceSelectorProxy = require('RelayRecordSourceSelectorProxy');
+const RelayModernRecord = require('../store/RelayModernRecord');
+const RelayRecordProxy = require('./RelayRecordProxy');
+const RelayRecordSourceSelectorProxy = require('./RelayRecordSourceSelectorProxy');
 
 const invariant = require('invariant');
-const normalizeRelayPayload = require('normalizeRelayPayload');
+const normalizeRelayPayload = require('../store/normalizeRelayPayload');
 
-const {EXISTENT, NONEXISTENT} = require('RelayRecordState');
-const {ROOT_ID, ROOT_TYPE} = require('RelayStoreUtils');
+const {EXISTENT, NONEXISTENT} = require('../store/RelayRecordState');
+const {ROOT_ID, ROOT_TYPE} = require('../store/RelayStoreUtils');
 
-import type {DataID} from '../util/RelayRuntimeTypes';
-import type {HandlerProvider} from 'RelayDefaultHandlerProvider';
-import type RelayRecordSourceMutator from 'RelayRecordSourceMutator';
+import type {HandlerProvider} from '../handlers/RelayDefaultHandlerProvider';
+import type {GetDataID} from '../store/RelayResponseNormalizer';
 import type {
   HandleFieldPayload,
   RecordSource,
   RecordProxy,
   RecordSourceProxy,
   RecordSourceSelectorProxy,
-  OperationSelector,
-} from 'RelayStoreTypes';
+  OperationDescriptor,
+} from '../store/RelayStoreTypes';
+import type {DataID} from '../util/RelayRuntimeTypes';
+import type RelayRecordSourceMutator from './RelayRecordSourceMutator';
 
 /**
  * @internal
@@ -42,14 +42,17 @@ class RelayRecordSourceProxy implements RecordSourceProxy {
   _handlerProvider: ?HandlerProvider;
   __mutator: RelayRecordSourceMutator;
   _proxies: {[dataID: DataID]: ?RelayRecordProxy};
+  _getDataID: GetDataID;
 
   constructor(
     mutator: RelayRecordSourceMutator,
+    getDataID: GetDataID,
     handlerProvider?: ?HandlerProvider,
   ) {
     this.__mutator = mutator;
     this._handlerProvider = handlerProvider || null;
     this._proxies = {};
+    this._getDataID = getDataID;
   }
 
   publishSource(
@@ -66,7 +69,6 @@ class RelayRecordSourceProxy implements RecordSourceProxy {
             this.create(dataID, RelayModernRecord.getType(sourceRecord));
           }
           this.__mutator.copyFieldsFromRecord(sourceRecord, dataID);
-          delete this._proxies[dataID];
         }
       } else if (status === NONEXISTENT) {
         this.delete(dataID);
@@ -88,7 +90,7 @@ class RelayRecordSourceProxy implements RecordSourceProxy {
   }
 
   commitPayload(
-    operation: OperationSelector,
+    operation: OperationDescriptor,
     response: ?Object,
   ): RecordSourceSelectorProxy {
     if (!response) {
@@ -97,6 +99,8 @@ class RelayRecordSourceProxy implements RecordSourceProxy {
     const {source, fieldPayloads} = normalizeRelayPayload(
       operation.root,
       response,
+      null,
+      {getDataID: this._getDataID},
     );
     this.publishSource(source, fieldPayloads);
     return new RelayRecordSourceSelectorProxy(this, operation.fragment);

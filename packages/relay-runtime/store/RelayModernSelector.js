@@ -1,26 +1,31 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayModernSelector
  * @flow
  * @format
  */
 
 'use strict';
 
+const RelayFeatureFlags = require('../util/RelayFeatureFlags');
+
 const areEqual = require('areEqual');
 const invariant = require('invariant');
 const warning = require('warning');
 
-const {getFragmentVariables} = require('RelayConcreteVariables');
-const {FRAGMENTS_KEY, ID_KEY} = require('RelayStoreUtils');
+const {getFragmentVariables} = require('./RelayConcreteVariables');
+const {
+  FRAGMENT_OWNER_KEY,
+  FRAGMENTS_KEY,
+  ID_KEY,
+} = require('./RelayStoreUtils');
 
+import type {ReaderFragment} from '../util/ReaderNode';
 import type {DataID, Variables} from '../util/RelayRuntimeTypes';
-import type {ConcreteFragment} from 'RelayConcreteNode';
-import type {Selector} from 'RelayStoreTypes';
+import type {OperationDescriptor, OwnedReaderSelector} from './RelayStoreTypes';
 
 /**
  * @public
@@ -47,15 +52,16 @@ import type {Selector} from 'RelayStoreTypes';
  * using that selector to `lookup()` the results against the environment:
  *
  * ```
- * const childSelector = getSelector(queryVariables, Child, parent);
+ * const childSelector = getSingularSelector(queryVariables, Child, parent);
  * const childData = environment.lookup(childSelector).data;
  * ```
  */
-function getSelector(
+function getSingularSelector(
   operationVariables: Variables,
-  fragment: ConcreteFragment,
+  fragment: ReaderFragment,
   item: mixed,
-): ?Selector {
+  explicitOwner?: ?OperationDescriptor,
+): ?OwnedReaderSelector {
   invariant(
     typeof item === 'object' && item !== null && !Array.isArray(item),
     'RelayModernSelector: Expected value for fragment `%s` to be an object, got ' +
@@ -73,26 +79,72 @@ function getSelector(
     fragments[fragment.name] !== null
   ) {
     const argumentVariables = fragments[fragment.name];
+
+    // We only use the owner to compute the selector variables if an owner
+    // was explicitly passed by the caller, for backwards compatibility.
+    // See TODO(T39494051) for details
+    if (explicitOwner != null && typeof explicitOwner === 'object') {
+      const ownerOperationVariables = explicitOwner.variables;
+      const fragmentVariables = getFragmentVariables(
+        fragment,
+        ownerOperationVariables,
+        /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+         * suppresses an error found when Flow v0.98 was deployed. To see the
+         * error delete this comment and run Flow. */
+        argumentVariables,
+      );
+      return {
+        owner: explicitOwner,
+        selector: {
+          dataID,
+          node: fragment,
+          variables: fragmentVariables,
+        },
+      };
+    }
+
+    // For convenience, we read and pass through the owner if one
+    // is present in the fragment reference (`item`), but we only
+    // use the owner to compute the selector variables if an owner was
+    // explicitly passed by the caller, for backwards compatibility.
+    // See TODO(T39494051) for details
+    const owner = explicitOwner ?? item[FRAGMENT_OWNER_KEY] ?? null;
     const fragmentVariables = getFragmentVariables(
       fragment,
       operationVariables,
+      /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+       * suppresses an error found when Flow v0.98 was deployed. To see the
+       * error delete this comment and run Flow. */
       argumentVariables,
     );
     return {
-      dataID,
-      node: fragment,
-      variables: fragmentVariables,
+      // $FlowFixMe - TODO T39154660
+      owner: owner,
+      selector: {
+        dataID,
+        node: fragment,
+        variables: fragmentVariables,
+      },
     };
   }
-  warning(
-    false,
-    'RelayModernSelector: Expected object to contain data for fragment `%s`, got ' +
-      '`%s`. Make sure that the parent operation/fragment included fragment ' +
-      '`...%s` without `@relay(mask: false)`.',
-    fragment.name,
-    JSON.stringify(item),
-    fragment.name,
-  );
+
+  if (__DEV__) {
+    let stringifiedItem = JSON.stringify(item);
+    if (stringifiedItem.length > 499) {
+      stringifiedItem = stringifiedItem.substr(0, 498) + '\u2026';
+    }
+
+    warning(
+      false,
+      'RelayModernSelector: Expected object to contain data for fragment `%s`, got ' +
+        '`%s`. Make sure that the parent operation/fragment included fragment ' +
+        '`...%s` without `@relay(mask: false)`.',
+      fragment.name,
+      stringifiedItem,
+      fragment.name,
+    );
+  }
+
   return null;
 }
 
@@ -101,24 +153,120 @@ function getSelector(
  *
  * Given the result `items` from a parent that fetched `fragment`, creates a
  * selector that can be used to read the results of that fragment on those
- * items. This is similar to `getSelector` but for "plural" fragments that
+ * items. This is similar to `getSingularSelector` but for "plural" fragments that
  * expect an array of results and therefore return an array of selectors.
  */
-function getSelectorList(
+function getPluralSelector(
   operationVariables: Variables,
-  fragment: ConcreteFragment,
+  fragment: ReaderFragment,
   items: Array<mixed>,
-): ?Array<Selector> {
+  owners?: Array<?OperationDescriptor>,
+): ?Array<OwnedReaderSelector> {
   let selectors = null;
-  items.forEach(item => {
+  if (__DEV__) {
+    if (owners != null) {
+      warning(
+        items.length === owners.length,
+        'RelayModernSelector: Expected number of plural values for fragment ' +
+          '`%s` to match number of owners. Received %s values and %s owners.',
+        fragment.name,
+        items.length,
+        owners.length,
+      );
+    }
+  }
+
+  items.forEach((item, ii) => {
+    const owner = owners != null ? owners[ii] : null;
     const selector =
-      item != null ? getSelector(operationVariables, fragment, item) : null;
+      item != null
+        ? getSingularSelector(operationVariables, fragment, item, owner)
+        : null;
     if (selector != null) {
       selectors = selectors || [];
       selectors.push(selector);
     }
   });
   return selectors;
+}
+
+function getSelector(
+  operationVariables: Variables,
+  fragment: ReaderFragment,
+  item: mixed | Array<mixed>,
+  explicitOwner?: ?OperationDescriptor | Array<?OperationDescriptor>,
+): ?OwnedReaderSelector | ?Array<OwnedReaderSelector> {
+  let selectorOrSelectors;
+  if (item == null) {
+    selectorOrSelectors = item;
+  } else if (fragment.metadata && fragment.metadata.plural === true) {
+    invariant(
+      Array.isArray(item),
+      'RelayModernSelector: Expected value for fragment `%s` to be an array, got `%s`. ' +
+        'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+    if (explicitOwner !== undefined) {
+      invariant(
+        Array.isArray(explicitOwner),
+        'RelayModernSelector: Expected explcitly provided owner for ' +
+          'fragment `%s` to be an array, got `%s`.',
+        fragment.name,
+        JSON.stringify(explicitOwner),
+      );
+      selectorOrSelectors = getPluralSelector(
+        operationVariables,
+        fragment,
+        /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+         * suppresses an error found when Flow v0.98 was deployed. To see the
+         * error delete this comment and run Flow. */
+        item,
+        explicitOwner,
+      );
+    } else {
+      selectorOrSelectors = getPluralSelector(
+        operationVariables,
+        fragment,
+        /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+         * suppresses an error found when Flow v0.98 was deployed. To see the
+         * error delete this comment and run Flow. */
+        item,
+      );
+    }
+  } else {
+    invariant(
+      !Array.isArray(item),
+      'RelayModernSelector: Expected value for fragment `%s` to be an object, got `%s`. ' +
+        'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+    if (explicitOwner != null) {
+      invariant(
+        !Array.isArray(explicitOwner),
+        'RelayModernSelector: Expected explcitly provided owner for ' +
+          'fragment `%s` not to be an array, got `%s`.',
+        fragment.name,
+        JSON.stringify(explicitOwner),
+      );
+      selectorOrSelectors = getSingularSelector(
+        operationVariables,
+        fragment,
+        item,
+        explicitOwner,
+      );
+    } else {
+      selectorOrSelectors = getSingularSelector(
+        operationVariables,
+        fragment,
+        item,
+      );
+    }
+  }
+  return selectorOrSelectors;
 }
 
 /**
@@ -133,35 +281,31 @@ function getSelectorList(
  */
 function getSelectorsFromObject(
   operationVariables: Variables,
-  fragments: {[key: string]: ConcreteFragment},
+  fragments: {[key: string]: ReaderFragment},
   object: {[key: string]: mixed},
-): {[key: string]: ?(Selector | Array<Selector>)} {
+  owners?: {[key: string]: ?OperationDescriptor | Array<?OperationDescriptor>},
+): {[key: string]: ?(OwnedReaderSelector | Array<OwnedReaderSelector>)} {
   const selectors = {};
   for (const key in fragments) {
     if (fragments.hasOwnProperty(key)) {
       const fragment = fragments[key];
       const item = object[key];
-      if (item == null) {
-        selectors[key] = item;
-      } else if (fragment.metadata && fragment.metadata.plural === true) {
+      if (owners != null) {
         invariant(
-          Array.isArray(item),
-          'RelayModernSelector: Expected value for key `%s` to be an array, got `%s`. ' +
-            'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
-          key,
-          JSON.stringify(item),
+          owners.hasOwnProperty(key),
+          'RelayModernSelector: Expected explcitly provided owner for ' +
+            'fragment `%s` under key `%s` to exist.',
           fragment.name,
+          key,
         );
-        selectors[key] = getSelectorList(operationVariables, fragment, item);
+        const explicitOwner = owners[key];
+        selectors[key] = getSelector(
+          operationVariables,
+          fragment,
+          item,
+          explicitOwner,
+        );
       } else {
-        invariant(
-          !Array.isArray(item),
-          'RelayModernFragmentSpecResolver: Expected value for key `%s` to be an object, got `%s`. ' +
-            'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
-          key,
-          JSON.stringify(item),
-          fragment.name,
-        );
         selectors[key] = getSelector(operationVariables, fragment, item);
       }
     }
@@ -179,7 +323,7 @@ function getSelectorsFromObject(
  * determining the "identity" of the props passed to a component.
  */
 function getDataIDsFromObject(
-  fragments: {[key: string]: ConcreteFragment},
+  fragments: {[key: string]: ReaderFragment},
   object: {[key: string]: mixed},
 ): {[key: string]: ?(DataID | Array<DataID>)} {
   const ids = {};
@@ -187,39 +331,51 @@ function getDataIDsFromObject(
     if (fragments.hasOwnProperty(key)) {
       const fragment = fragments[key];
       const item = object[key];
-      if (item == null) {
-        ids[key] = item;
-      } else if (fragment.metadata && fragment.metadata.plural === true) {
-        invariant(
-          Array.isArray(item),
-          'RelayModernSelector: Expected value for key `%s` to be an array, got `%s`. ' +
-            'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
-          key,
-          JSON.stringify(item),
-          fragment.name,
-        );
-        ids[key] = getDataIDs(fragment, item);
-      } else {
-        invariant(
-          !Array.isArray(item),
-          'RelayModernFragmentSpecResolver: Expected value for key `%s` to be an object, got `%s`. ' +
-            'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
-          key,
-          JSON.stringify(item),
-          fragment.name,
-        );
-        ids[key] = getDataID(fragment, item);
-      }
+      ids[key] = getDataIDsFromFragment(fragment, item);
     }
   }
   return ids;
+}
+
+function getDataIDsFromFragment(
+  fragment: ReaderFragment,
+  item: mixed | Array<mixed>,
+): ?DataID | ?Array<DataID> {
+  let idOrIDs;
+  if (item == null) {
+    idOrIDs = item;
+  } else if (fragment.metadata && fragment.metadata.plural === true) {
+    invariant(
+      Array.isArray(item),
+      'RelayModernSelector: Expected value for fragment `%s` to be an array, got `%s`. ' +
+        'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+    /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+     * suppresses an error found when Flow v0.98 was deployed. To see the error
+     * delete this comment and run Flow. */
+    idOrIDs = getDataIDs(fragment, item);
+  } else {
+    invariant(
+      !Array.isArray(item),
+      'RelayModernFragmentSpecResolver: Expected value for fragment `%s` to be an object, got `%s`. ' +
+        'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+    idOrIDs = getDataID(fragment, item);
+  }
+  return idOrIDs;
 }
 
 /**
  * @internal
  */
 function getDataIDs(
-  fragment: ConcreteFragment,
+  fragment: ReaderFragment,
   items: Array<mixed>,
 ): ?Array<DataID> {
   let ids;
@@ -236,7 +392,7 @@ function getDataIDs(
 /**
  * @internal
  */
-function getDataID(fragment: ConcreteFragment, item: mixed): ?DataID {
+function getDataID(fragment: ReaderFragment, item: mixed): ?DataID {
   invariant(
     typeof item === 'object' && item !== null && !Array.isArray(item),
     'RelayModernSelector: Expected value for fragment `%s` to be an object, got ' +
@@ -272,66 +428,160 @@ function getDataID(fragment: ConcreteFragment, item: mixed): ?DataID {
  */
 function getVariablesFromObject(
   operationVariables: Variables,
-  fragments: {[key: string]: ConcreteFragment},
+  fragments: {[key: string]: ReaderFragment},
   object: {[key: string]: mixed},
+  owners?: {[key: string]: ?OperationDescriptor | Array<?OperationDescriptor>},
 ): Variables {
   const variables = {};
   for (const key in fragments) {
     if (fragments.hasOwnProperty(key)) {
       const fragment = fragments[key];
       const item = object[key];
-      if (item == null) {
-        continue;
-      } else if (fragment.metadata && fragment.metadata.plural === true) {
+      if (owners != null) {
         invariant(
-          Array.isArray(item),
-          'RelayModernSelector: Expected value for key `%s` to be an array, got `%s`. ' +
-            'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
-          key,
-          JSON.stringify(item),
+          owners.hasOwnProperty(key),
+          'RelayModernSelector: Expected explcitly provided owner for ' +
+            'fragment `%s` under key `%s` to exist.',
           fragment.name,
+          key,
         );
-        item.forEach(value => {
-          if (value != null) {
-            const itemVariables = getVariables(
-              operationVariables,
-              fragment,
-              value,
-            );
-            if (itemVariables) {
-              Object.assign(variables, itemVariables);
-            }
-          }
-        });
+        const explicitOwner = owners[key];
+        const itemVariables = getVariablesFromFragment(
+          operationVariables,
+          fragment,
+          item,
+          explicitOwner,
+        );
+        Object.assign(variables, itemVariables);
       } else {
-        invariant(
-          !Array.isArray(item),
-          'RelayModernFragmentSpecResolver: Expected value for key `%s` to be an object, got `%s`. ' +
-            'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
-          key,
-          JSON.stringify(item),
-          fragment.name,
+        const itemVariables = getVariablesFromFragment(
+          operationVariables,
+          fragment,
+          item,
         );
-        const itemVariables = getVariables(operationVariables, fragment, item);
-        if (itemVariables) {
-          Object.assign(variables, itemVariables);
-        }
+        Object.assign(variables, itemVariables);
       }
     }
   }
   return variables;
 }
 
-/**
- * @internal
- */
-function getVariables(
+function getVariablesFromFragment(
   operationVariables: Variables,
-  fragment: ConcreteFragment,
+  fragment: ReaderFragment,
+  item: mixed | Array<mixed>,
+  explicitOwner?: ?OperationDescriptor | Array<?OperationDescriptor>,
+): Variables {
+  if (item == null) {
+    return {};
+  } else if (fragment.metadata?.plural === true) {
+    invariant(
+      Array.isArray(item),
+      'RelayModernSelector: Expected value for fragment `%s` to be an array, got `%s`. ' +
+        'Remove `@relay(plural: true)` from fragment `%s` to allow the prop to be an object.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+
+    if (explicitOwner !== undefined) {
+      invariant(
+        Array.isArray(explicitOwner),
+        'RelayModernSelector: Expected explcitly provided owner for ' +
+          'fragment `%s` to be an array, got `%s`.',
+        fragment.name,
+        JSON.stringify(explicitOwner),
+      );
+      return getVariablesFromPluralFragment(
+        operationVariables,
+        fragment,
+        /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+         * suppresses an error found when Flow v0.98 was deployed. To see the
+         * error delete this comment and run Flow. */
+        item,
+        explicitOwner,
+      );
+    } else {
+      /* $FlowFixMe(>=0.98.0 site=www,mobile,react_native_fb,oss) This comment
+       * suppresses an error found when Flow v0.98 was deployed. To see the
+       * error delete this comment and run Flow. */
+      return getVariablesFromPluralFragment(operationVariables, fragment, item);
+    }
+  } else {
+    invariant(
+      !Array.isArray(item),
+      'RelayModernFragmentSpecResolver: Expected value for fragment `%s` to be an object, got `%s`. ' +
+        'Add `@relay(plural: true)` to fragment `%s` to allow the prop to be an array of items.',
+      fragment.name,
+      JSON.stringify(item),
+      fragment.name,
+    );
+    if (explicitOwner !== undefined) {
+      invariant(
+        !Array.isArray(explicitOwner),
+        'RelayModernSelector: Expected explcitly provided owner for ' +
+          'fragment `%s` not to be an array, got `%s`.',
+        fragment.name,
+        JSON.stringify(explicitOwner),
+      );
+
+      return (
+        getVariablesFromSingularFragment(
+          operationVariables,
+          fragment,
+          item,
+          explicitOwner,
+        ) || {}
+      );
+    } else {
+      return (
+        getVariablesFromSingularFragment(operationVariables, fragment, item) ||
+        {}
+      );
+    }
+  }
+}
+
+function getVariablesFromSingularFragment(
+  operationVariables: Variables,
+  fragment: ReaderFragment,
   item: mixed,
+  owner?: ?OperationDescriptor,
 ): ?Variables {
-  const selector = getSelector(operationVariables, fragment, item);
-  return selector ? selector.variables : null;
+  const ownedSelector = getSingularSelector(
+    operationVariables,
+    fragment,
+    item,
+    owner,
+  );
+  if (!ownedSelector) {
+    return null;
+  }
+  return ownedSelector.selector.variables;
+}
+
+function getVariablesFromPluralFragment(
+  operationVariables: Variables,
+  fragment: ReaderFragment,
+  items: Array<mixed>,
+  owners?: Array<?OperationDescriptor>,
+): Variables {
+  const variables = {};
+  items.forEach((value, ii) => {
+    if (value != null) {
+      const owner = owners != null ? owners[ii] : null;
+      const itemVariables = getVariablesFromSingularFragment(
+        operationVariables,
+        fragment,
+        value,
+        owner,
+      );
+      if (itemVariables) {
+        Object.assign(variables, itemVariables);
+      }
+    }
+  });
+  return variables;
 }
 
 /**
@@ -342,21 +592,37 @@ function getVariables(
  * different objects, even if they select the same fields.
  */
 function areEqualSelectors(
-  thisSelector: Selector,
-  thatSelector: Selector,
+  thisSelector: OwnedReaderSelector,
+  thatSelector: OwnedReaderSelector,
 ): boolean {
-  return (
-    thisSelector.dataID === thatSelector.dataID &&
-    thisSelector.node === thatSelector.node &&
-    areEqual(thisSelector.variables, thatSelector.variables)
+  const areVariablesEqual = areEqual(
+    thisSelector.selector.variables,
+    thatSelector.selector.variables,
   );
+  const areReaderSelectorsEqual =
+    thisSelector.selector.dataID === thatSelector.selector.dataID &&
+    thisSelector.selector.node === thatSelector.selector.node &&
+    areVariablesEqual;
+
+  if (RelayFeatureFlags.PREFER_FRAGMENT_OWNER_OVER_CONTEXT) {
+    // NOTE: If fragment ownership is enabled, we should also compare if
+    // the owners attached to the selectors are the same, otherwise we might
+    // skip setting a new selector that has a new owner.
+    return areReaderSelectorsEqual && thisSelector.owner === thatSelector.owner;
+  }
+  return areReaderSelectorsEqual;
 }
 
 module.exports = {
   areEqualSelectors,
+  getDataIDsFromFragment,
   getDataIDsFromObject,
+  getSingularSelector,
+  getPluralSelector,
   getSelector,
-  getSelectorList,
   getSelectorsFromObject,
+  getVariablesFromSingularFragment,
+  getVariablesFromPluralFragment,
+  getVariablesFromFragment,
   getVariablesFromObject,
 };

@@ -1,15 +1,18 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @flow
- * @providesModule RelayGenerateIDFieldTransform
+ * @flow strict-local
  * @format
  */
 
 'use strict';
+
+const CompilerContext = require('../core/GraphQLCompilerContext');
+const IRTransformer = require('../core/GraphQLIRTransformer');
+const SchemaUtils = require('../core/GraphQLSchemaUtils');
 
 const {hasUnaliasedSelection} = require('./RelayTransformUtils');
 const {
@@ -17,13 +20,8 @@ const {
   assertCompositeType,
   assertLeafType,
 } = require('graphql');
-const {
-  CompilerContext,
-  SchemaUtils,
-  IRTransformer,
-} = require('graphql-compiler');
 
-import type {InlineFragment, LinkedField, ScalarField} from 'graphql-compiler';
+import type {InlineFragment, LinkedField, ScalarField} from '../core/GraphQLIR';
 import type {GraphQLCompositeType} from 'graphql';
 const {
   canHaveSelections,
@@ -56,6 +54,7 @@ function relayGenerateIDFieldTransform(
     args: [],
     directives: [],
     handles: null,
+    loc: {kind: 'Generated'},
     metadata: null,
     name: ID,
     type: idType,
@@ -132,6 +131,7 @@ function buildIDFragment(
   return {
     kind: 'InlineFragment',
     directives: [],
+    loc: {kind: 'Generated'},
     metadata: null,
     typeCondition: fragmentType,
     selections: [idField],

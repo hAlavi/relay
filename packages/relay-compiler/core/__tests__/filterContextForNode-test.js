@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,23 +10,23 @@
 
 'use strict';
 
-require('configureForRelayOSS');
+const GraphQLCompilerContext = require('../GraphQLCompilerContext');
+const GraphQLIRPrinter = require('../GraphQLIRPrinter');
 
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const GraphQLIRPrinter = require('GraphQLIRPrinter');
-const RelayTestSchema = require('RelayTestSchema');
-const filterContextForNode = require('filterContextForNode');
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
-const parseGraphQLText = require('parseGraphQLText');
+const filterContextForNode = require('../filterContextForNode');
+
+const {
+  TestSchema,
+  generateTestsFromFixtures,
+  parseGraphQLText,
+} = require('relay-test-utils');
 
 const MAIN_QUERY_NAME = 'MainQuery';
 
 describe('filterContextForNode', () => {
   generateTestsFromFixtures(`${__dirname}/fixtures/filter-context`, text => {
-    const {definitions} = parseGraphQLText(RelayTestSchema, text);
-    const context = new GraphQLCompilerContext(RelayTestSchema).addAll(
-      definitions,
-    );
+    const {definitions} = parseGraphQLText(TestSchema, text);
+    const context = new GraphQLCompilerContext(TestSchema).addAll(definitions);
     const printerContext = filterContextForNode(
       context.get(MAIN_QUERY_NAME),
       context,

@@ -1,48 +1,76 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
  * @format
+ * @flow
  * @emails oncall+relay
  */
 
 'use strict';
 
-require('configureForRelayOSS');
+const ASTConvert = require('../../core/ASTConvert');
+const CodeMarker = require('../../util/CodeMarker');
+const CompilerContext = require('../../core/GraphQLCompilerContext');
+const RelayIRTransforms = require('../../core/RelayIRTransforms');
 
 const compileRelayArtifacts = require('../compileRelayArtifacts');
 
-const {ASTConvert, CompilerContext} = require('graphql-compiler');
-
-const RelayIRTransforms = require('RelayIRTransforms');
-const RelayTestSchema = require('RelayTestSchema');
-
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
-const parseGraphQLText = require('parseGraphQLText');
+const {RelayFeatureFlags} = require('relay-runtime');
+const {
+  TestSchema,
+  generateTestsFromFixtures,
+  parseGraphQLText,
+} = require('relay-test-utils');
 
 describe('compileRelayArtifacts', () => {
+  let previousEnableIncrementalDelivery;
+
+  beforeEach(() => {
+    previousEnableIncrementalDelivery =
+      RelayFeatureFlags.ENABLE_INCREMENTAL_DELIVERY;
+    RelayFeatureFlags.ENABLE_INCREMENTAL_DELIVERY = true;
+  });
+
+  afterEach(() => {
+    RelayFeatureFlags.ENABLE_INCREMENTAL_DELIVERY = previousEnableIncrementalDelivery;
+  });
+
   generateTestsFromFixtures(
     `${__dirname}/fixtures/compileRelayArtifacts`,
     text => {
       const relaySchema = ASTConvert.transformASTSchema(
-        RelayTestSchema,
+        TestSchema,
         RelayIRTransforms.schemaExtensions,
       );
-      const compilerContext = new CompilerContext(
-        RelayTestSchema,
-        relaySchema,
-      ).addAll(parseGraphQLText(relaySchema, text).definitions);
+      const {definitions, schema} = parseGraphQLText(relaySchema, text);
+      // $FlowFixMe
+      const compilerContext = new CompilerContext(TestSchema, schema).addAll(
+        definitions,
+      );
       return compileRelayArtifacts(compilerContext, RelayIRTransforms)
-        .map(({text: queryText, ...ast}) => {
-          let stringified = JSON.stringify(ast, null, 2);
-          if (queryText) {
-            stringified += '\n\nQUERY:\n\n' + queryText;
+        .map(([_definition, node]) => {
+          if (node.kind === 'Request') {
+            const {
+              params: {text: queryText},
+              ...ast
+            } = node;
+            return [stringifyAST(ast), 'QUERY:', queryText].join('\n\n');
+          } else {
+            return stringifyAST(node);
           }
-          return stringified;
         })
         .join('\n\n');
     },
   );
 });
+
+function stringifyAST(ast: mixed): string {
+  return CodeMarker.postProcess(
+    // $FlowFixMe(>=0.95.0) JSON.stringify can return undefined
+    JSON.stringify(ast, null, 2),
+    moduleName => `require('${moduleName}')`,
+  );
+}

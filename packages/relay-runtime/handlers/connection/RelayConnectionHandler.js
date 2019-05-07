@@ -1,33 +1,34 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayConnectionHandler
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayConnectionInterface = require('RelayConnectionInterface');
+const RelayConnectionInterface = require('./RelayConnectionInterface');
 
-const generateRelayClientID = require('generateRelayClientID');
-const getRelayHandleKey = require('getRelayHandleKey');
+const getRelayHandleKey = require('../../util/getRelayHandleKey');
 const invariant = require('invariant');
 const warning = require('warning');
 
-import type {DataID, Variables} from '../../util/RelayRuntimeTypes';
+const {generateClientID} = require('../../store/ClientID');
+
 import type {
   HandleFieldPayload,
   RecordProxy,
+  ReadOnlyRecordProxy,
   RecordSourceProxy,
-} from 'RelayStoreTypes';
+} from '../../store/RelayStoreTypes';
+import type {DataID, Variables} from '../../util/RelayRuntimeTypes';
 
 export type ConnectionMetadata = {
   path: ?Array<string>,
-  direction: ?('forward' | 'backward'),
+  direction: ?('forward' | 'backward' | 'bidirectional'),
   cursor: ?string,
   count: ?string,
 };
@@ -73,7 +74,7 @@ function update(store: RecordSourceProxy, payload: HandleFieldPayload): void {
   if (!clientConnection) {
     // Initial fetch with data: copy fields from the server record
     const connection = store.create(
-      generateRelayClientID(record.getDataID(), payload.handleKey),
+      generateClientID(record.getDataID(), payload.handleKey),
       serverConnection.getType(),
     );
     connection.setValue(0, NEXT_EDGE_INDEX);
@@ -88,7 +89,7 @@ function update(store: RecordSourceProxy, payload: HandleFieldPayload): void {
     record.setLinkedRecord(connection, payload.handleKey);
 
     clientPageInfo = store.create(
-      generateRelayClientID(connection.getDataID(), PAGE_INFO),
+      generateClientID(connection.getDataID(), PAGE_INFO),
       PAGE_INFO_TYPE,
     );
     clientPageInfo.setValue(false, HAS_NEXT_PAGE);
@@ -179,7 +180,11 @@ function update(store: RecordSourceProxy, payload: HandleFieldPayload): void {
     }
     // Page info should be updated even if no new edge were returned.
     if (clientPageInfo && serverPageInfo) {
-      if (args.before != null || (args.after == null && args.last)) {
+      if (args.after == null && args.before == null) {
+        // The connection was refetched from the beginning/end: replace
+        // page_info
+        clientPageInfo.copyFieldsFrom(serverPageInfo);
+      } else if (args.before != null || (args.after == null && args.last)) {
         clientPageInfo.setValue(
           !!serverPageInfo.getValue(HAS_PREV_PAGE),
           HAS_PREV_PAGE,
@@ -241,7 +246,7 @@ function update(store: RecordSourceProxy, payload: HandleFieldPayload): void {
  * that returns an array of the connections under the same `key` regardless of the variables.
  */
 function getConnection(
-  record: RecordProxy,
+  record: ReadOnlyRecordProxy,
   key: string,
   filters?: ?Variables,
 ): ?RecordProxy {
@@ -339,7 +344,7 @@ function createEdge(
   // which will only conflict if the same node is added to the same connection
   // twice. This is acceptable since the `insertEdge*` functions ignore
   // duplicates.
-  const edgeID = generateRelayClientID(record.getDataID(), node.getDataID());
+  const edgeID = generateClientID(record.getDataID(), node.getDataID());
   let edge = store.get(edgeID);
   if (!edge) {
     edge = store.create(edgeID, edgeType);
@@ -477,11 +482,7 @@ function buildConnectionEdge(
     NEXT_EDGE_INDEX,
     edgeIndex,
   );
-  const edgeID = generateRelayClientID(
-    connection.getDataID(),
-    EDGES,
-    edgeIndex,
-  );
+  const edgeID = generateClientID(connection.getDataID(), EDGES, edgeIndex);
   const connectionEdge = store.create(edgeID, edge.getType());
   connectionEdge.copyFieldsFrom(edge);
   connection.setValue(edgeIndex + 1, NEXT_EDGE_INDEX);
@@ -492,7 +493,7 @@ function buildConnectionEdge(
  * @internal
  *
  * Adds the source edges to the target edges, skipping edges with
- * duplicate cursors or node ids.
+ * duplicate node ids.
  */
 function mergeEdges(
   sourceEdges: Array<?RecordProxy>,

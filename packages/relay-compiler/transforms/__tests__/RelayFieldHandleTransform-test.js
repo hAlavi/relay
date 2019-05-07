@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,21 +10,22 @@
 
 'use strict';
 
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const GraphQLIRPrinter = require('GraphQLIRPrinter');
-const RelayFieldHandleTransform = require('RelayFieldHandleTransform');
-const RelayTestSchema = require('RelayTestSchema');
+const GraphQLCompilerContext = require('../../core/GraphQLCompilerContext');
+const GraphQLIRPrinter = require('../../core/GraphQLIRPrinter');
+const RelayFieldHandleTransform = require('../RelayFieldHandleTransform');
 
-const parseGraphQLText = require('parseGraphQLText');
-
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
+const {
+  TestSchema,
+  generateTestsFromFixtures,
+  parseGraphQLText,
+} = require('relay-test-utils');
 
 describe('RelayFieldHandleTransform', () => {
   generateTestsFromFixtures(
     `${__dirname}/fixtures/field-handle-transform`,
     text => {
-      const {definitions} = parseGraphQLText(RelayTestSchema, text);
-      return new GraphQLCompilerContext(RelayTestSchema)
+      const {definitions} = parseGraphQLText(TestSchema, text);
+      return new GraphQLCompilerContext(TestSchema)
         .addAll(definitions)
         .applyTransforms([RelayFieldHandleTransform.transform])
         .documents()

@@ -24,6 +24,10 @@ fragment UserFragment on User @argumentDefinitions(
   after: {type: "ID"}
   first: {type: "Int", defaultValue: 5}
   size: {type: "[Int]"}
+  outOfBoundsSize: {type: "[Int]", defaultValue: [2147483648]}
+  storyType: {type: "StoryType", defaultValue: DIRECTED},
+  storyType_invalid_string: {type: "StoryType", defaultValue: "DIRECTED"},
+  storyType_invalid_lowercase: {type: "StoryType", defaultValue: directed},
 ) {
   id
   __typename
@@ -36,9 +40,18 @@ fragment UserFragment on User @argumentDefinitions(
   friends(after: $after, first: $first, traits: [HELPFUL]) {
     count
   }
+  secondFriends: friends(first: 10) {
+    count
+  }
   name @include(if: $cond)
   otherName: name @customDirective(level: 3)
-  thumbnail: profilePicture(size: 32) {
+  thumbnail: profilePicture2(
+    size: 32,
+    cropPosition: CENTER,
+    fileExtension: PNG,
+    additionalParameters: { filter: "Boston" },
+    options: {newName: null}
+  ) {
     height
     width
     src: uri
@@ -50,6 +63,11 @@ fragment UserFragment on User @argumentDefinitions(
   }
   storySearch(query: {type: DIRECTED}) {
     id
+  }
+  thumbnailWithOutOfBoundsSize: profilePicture2(
+    size: $outOfBoundsSize,
+  ) {
+    uri
   }
 }
 
@@ -76,6 +94,10 @@ fragment UserFragment on User @argumentDefinitions(
   after: {type: "ID"}
   first: {type: "Int", defaultValue: 5}
   size: {type: "[Int]"}
+  outOfBoundsSize: {type: "[Int]", defaultValue: [2147483648]}
+  storyType: {type: "StoryType", defaultValue: DIRECTED}
+  storyType_invalid_string: {type: "StoryType", defaultValue: DIRECTED}
+  storyType_invalid_lowercase: {type: "StoryType", defaultValue: directed}
 ) {
   id
   __typename
@@ -88,9 +110,12 @@ fragment UserFragment on User @argumentDefinitions(
   friends(after: $after, first: $first, traits: [HELPFUL]) {
     count
   }
+  secondFriends: friends(first: 10) {
+    count
+  }
   name @include(if: $cond)
   otherName: name @customDirective(level: 3)
-  thumbnail: profilePicture(size: 32) {
+  thumbnail: profilePicture2(size: 32, cropPosition: CENTER, fileExtension: PNG, additionalParameters: {"filter":"Boston"}, options: {newName: null}) {
     height
     width
     src: uri
@@ -103,6 +128,97 @@ fragment UserFragment on User @argumentDefinitions(
   storySearch(query: {type: DIRECTED}) {
     id
   }
+  thumbnailWithOutOfBoundsSize: profilePicture2(size: $outOfBoundsSize) {
+    uri
+  }
 }
 
+`;
+
+exports[`GraphQLIRPrinter matches expected output: lowercase-enum-fragment-arg.graphql 1`] = `
+~~~~~~~~~~ INPUT ~~~~~~~~~~
+fragment UserFragment on User @argumentDefinitions(
+  environments: {type: "Environment", defaultValue: web}
+) {
+  checkins(environments: [$environments]) {
+    __typename
+  }
+}
+
+~~~~~~~~~~ OUTPUT ~~~~~~~~~~
+fragment UserFragment on User @argumentDefinitions(
+  environments: {type: "Environment", defaultValue: web}
+) {
+  checkins(environments: [$environments]) {
+    __typename
+  }
+}
+
+`;
+
+exports[`GraphQLIRPrinter matches expected output: string-enum-arg.invalid.graphql 1`] = `
+~~~~~~~~~~ INPUT ~~~~~~~~~~
+# expected-to-throw
+fragment UserFragment on User {
+  checkins(environments: "WEB") {
+    __typename
+  }
+}
+
+~~~~~~~~~~ OUTPUT ~~~~~~~~~~
+THROWN EXCEPTION:
+
+Error: RelayParser: Encountered 1 error(s):
+- Expected a value matching type 'Environment!'.
+  
+  GraphQL request (3:26)
+  2: fragment UserFragment on User {
+  3:   checkins(environments: "WEB") {
+                              ^
+  4:     __typename
+  
+`;
+
+exports[`GraphQLIRPrinter matches expected output: string-enum-fragment-arg.graphql 1`] = `
+~~~~~~~~~~ INPUT ~~~~~~~~~~
+fragment UserFragment on User @argumentDefinitions(
+  environments: {type: "Environment", defaultValue: "WEB"}
+) {
+  checkins(environments: [$environments]) {
+    __typename
+  }
+}
+
+~~~~~~~~~~ OUTPUT ~~~~~~~~~~
+fragment UserFragment on User @argumentDefinitions(
+  environments: {type: "Environment", defaultValue: WEB}
+) {
+  checkins(environments: [$environments]) {
+    __typename
+  }
+}
+
+`;
+
+exports[`GraphQLIRPrinter matches expected output: unknown-enum-arg.invalid.graphql 1`] = `
+~~~~~~~~~~ INPUT ~~~~~~~~~~
+# expected-to-throw
+fragment UserFragment on User {
+  checkins(environments: UNKNOWN_ENUM_VALUE) {
+    __typename
+  }
+}
+
+~~~~~~~~~~ OUTPUT ~~~~~~~~~~
+THROWN EXCEPTION:
+
+Error: RelayParser: Encountered 1 error(s):
+- Expected a value matching type 'Environment!'.
+  
+  GraphQL request (3:26)
+  2: fragment UserFragment on User {
+  3:   checkins(environments: UNKNOWN_ENUM_VALUE) {
+                              ^
+  4:     __typename
+  
 `;

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,29 +10,33 @@
 
 'use strict';
 
-const FlattenTransform = require('FlattenTransform');
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const GraphQLIRPrinter = require('GraphQLIRPrinter');
-const RelayParser = require('RelayParser');
-const RelayRelayDirectiveTransform = require('RelayRelayDirectiveTransform');
-const RelayTestSchema = require('RelayTestSchema');
+const FlattenTransform = require('../FlattenTransform');
+const GraphQLCompilerContext = require('../../core/GraphQLCompilerContext');
+const GraphQLIRPrinter = require('../../core/GraphQLIRPrinter');
+const RelayMatchTransform = require('../../transforms/RelayMatchTransform');
+const RelayParser = require('../../core/RelayParser');
+const RelayRelayDirectiveTransform = require('../RelayRelayDirectiveTransform');
 
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
+const {TestSchema, generateTestsFromFixtures} = require('relay-test-utils');
 
-import type {FlattenOptions} from 'FlattenTransform';
+import type {FlattenOptions} from '../FlattenTransform';
 
 describe('FlattenTransform', () => {
   function printContextTransform(
     options: FlattenOptions,
   ): (text: string) => string {
     return text => {
-      const {transformASTSchema} = require('ASTConvert');
-      const extendedSchema = transformASTSchema(RelayTestSchema, [
+      const {transformASTSchema} = require('../../core/ASTConvert');
+      const extendedSchema = transformASTSchema(TestSchema, [
+        RelayMatchTransform.SCHEMA_EXTENSION,
         RelayRelayDirectiveTransform.SCHEMA_EXTENSION,
       ]);
-      return new GraphQLCompilerContext(RelayTestSchema, extendedSchema)
+      return new GraphQLCompilerContext(TestSchema, extendedSchema)
         .addAll(RelayParser.parse(extendedSchema, text))
-        .applyTransforms([FlattenTransform.transformWithOptions(options)])
+        .applyTransforms([
+          RelayMatchTransform.transform,
+          FlattenTransform.transformWithOptions(options),
+        ])
         .documents()
         .map(doc => GraphQLIRPrinter.print(doc))
         .join('\n');
@@ -45,12 +49,7 @@ describe('FlattenTransform', () => {
   );
 
   generateTestsFromFixtures(
-    `${__dirname}/fixtures/flatten-transform-option-flatten-inline`,
-    printContextTransform({flattenInlineFragments: true}),
-  );
-
-  generateTestsFromFixtures(
     `${__dirname}/fixtures/flatten-transform-errors`,
-    printContextTransform({flattenInlineFragments: true}),
+    printContextTransform({}),
   );
 });

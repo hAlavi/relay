@@ -1,10 +1,10 @@
 /**
- * Copyright (c) 2017-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @format
+ * @noformat
  */
 
 'use strict';
@@ -22,9 +22,6 @@ if (module.parent) {
     .readdirSync(packagesRoot)
     .map(filepath => path.join(packagesRoot, filepath))
     .filter(filepath => fs.statSync(filepath).isDirectory());
-
-  // Temporary edge case, graphql-compiler is an internal dependency.
-  packagePaths.push(path.join(packagesRoot, 'relay-compiler/graphql-compiler'));
 
   const errors = testDependencies(topLevelPackagePath, packagePaths);
   if (errors.length !== 0) {
@@ -78,14 +75,14 @@ function testPackageDependencies(topLevelPackagePath, packagePath) {
     `${packageName} should have no dev dependencies.`
   );
 
-  const requiredRepoPackages = new Set(['relay-runtime', 'relay-compiler']);
+  const requiredRepoPackages = new Set([
+    'relay-compiler',
+    'relay-runtime',
+    'react-relay',
+  ]);
   for (const dependencyName in packageJson.dependencies) {
     // packages in this repo, won't be in the top level package.json.
     if (requiredRepoPackages.has(dependencyName)) {
-      continue;
-    }
-    if (dependencyName === 'babylon') {
-      // TODO(T25740028) once we're fully on babylon 7, we can remove this hack.
       continue;
     }
     expectEqual(

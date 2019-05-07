@@ -1,59 +1,72 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
  * @flow
- * @providesModule RelayConnectionTransform
  * @format
  */
 
 'use strict';
 
+const IRTransformer = require('../../core/GraphQLIRTransformer');
 const RelayParser = require('../../core/RelayParser');
+const SchemaUtils = require('../../core/GraphQLSchemaUtils');
 
-const invariant = require('invariant');
+const getLiteralArgumentValues = require('../../core/getLiteralArgumentValues');
 
-const {AFTER, BEFORE, FIRST, KEY, LAST} = require('./RelayConnectionConstants');
-// TODO T21875029 ../../../relay-runtime/RelayRuntime
-const {ConnectionInterface} = require('RelayRuntime');
 const {
-  assertCompositeType,
+  createCompilerError,
+  createUserError,
+} = require('../../core/RelayCompilerError');
+const {AFTER, BEFORE, FIRST, KEY, LAST} = require('./RelayConnectionConstants');
+const {
   GraphQLInterfaceType,
   GraphQLList,
   GraphQLObjectType,
   GraphQLScalarType,
+  GraphQLString,
   GraphQLUnionType,
   parse,
 } = require('graphql');
-const {
-  getLiteralArgumentValues,
-  IRTransformer,
-  SchemaUtils,
-} = require('graphql-compiler');
+const {ConnectionInterface, RelayFeatureFlags} = require('relay-runtime');
 
-// TODO T21875029 ../../../relay-runtime/handlers/connection/RelayConnectionHandler
-import type {ConnectionMetadata} from 'RelayConnectionHandler';
+const {INCREMENTAL_DELIVERY_VARIABLE_NAME: VARIABLE_NAME} = RelayFeatureFlags;
+
+import type CompilerContext from '../../core/GraphQLCompilerContext';
 import type {
   Argument,
+  Directive,
   Fragment,
   InlineFragment,
   LinkedField,
   Root,
-  CompilerContext,
-} from 'graphql-compiler';
-import type {GraphQLType} from 'graphql';
+  Selection,
+} from '../../core/GraphQLIR';
+import type {ConnectionMetadata} from 'relay-runtime';
 
 type Options = {
   // The current path
   path: Array<?string>,
   // Metadata recorded for @connection fields
   connectionMetadata: Array<ConnectionMetadata>,
-  definitionName: string,
 };
 
+type ConnectionArguments = {|
+  handler: ?string,
+  key: string,
+  filters: ?$ReadOnlyArray<string>,
+  stream: ?{|
+    if: ?Argument,
+    initialCount: ?Argument,
+    label: string,
+  |},
+|};
+
 const CONNECTION = 'connection';
+const STREAM_CONNECTION = 'stream_connection';
+const HANDLER = 'handler';
 
 /**
  * @public
@@ -76,13 +89,26 @@ function relayConnectionTransform(context: CompilerContext): CompilerContext {
     node => ({
       path: [],
       connectionMetadata: [],
-      definitionName: node.name,
     }),
   );
 }
 
-const SCHEMA_EXTENSION =
-  'directive @connection(key: String!, filters: [String]) on FIELD';
+const SCHEMA_EXTENSION = `
+  directive @connection(
+    key: String!
+    filters: [String]
+    handler: String
+  ) on FIELD
+
+  directive @stream_connection(
+    key: String!
+    filters: [String]
+    handler: String
+    label: String!
+    initial_count: Int!
+    if: Boolean = true
+  ) on FIELD
+`;
 
 /**
  * @internal
@@ -109,35 +135,204 @@ function visitFragmentOrRoot<N: Fragment | Root>(
  * @internal
  */
 function visitLinkedField(field: LinkedField, options: Options): LinkedField {
-  const isPlural =
-    SchemaUtils.getNullableType(field.type) instanceof GraphQLList;
-  options.path.push(isPlural ? null : field.alias || field.name);
-  let transformedField = this.traverse(field, options);
+  const nullableType = SchemaUtils.getNullableType(field.type);
+  const isPlural = nullableType instanceof GraphQLList;
+  const path = options.path.concat(isPlural ? null : field.alias || field.name);
+  let transformedField = this.traverse(field, {
+    ...options,
+    path,
+  });
   const connectionDirective = field.directives.find(
-    directive => directive.name === CONNECTION,
+    directive =>
+      directive.name === CONNECTION || directive.name === STREAM_CONNECTION,
   );
   if (!connectionDirective) {
-    options.path.pop();
     return transformedField;
   }
-  const {definitionName} = options;
-  validateConnectionSelection(definitionName, transformedField);
-  validateConnectionType(definitionName, transformedField.type);
+  if (
+    !(nullableType instanceof GraphQLObjectType) &&
+    !(nullableType instanceof GraphQLInterfaceType)
+  ) {
+    throw new createUserError(
+      `@${connectionDirective.name} used on invalid field '${field.name}'. ` +
+        'Expected the return type to be a non-plural interface or object, ' +
+        `got '${String(field.type)}'.`,
+      [transformedField.loc],
+    );
+  }
 
-  const pathHasPlural = options.path.includes(null);
-  const firstArg = findArg(transformedField, FIRST);
-  const lastArg = findArg(transformedField, LAST);
+  validateConnectionSelection(transformedField);
+  validateConnectionType(transformedField, nullableType, connectionDirective);
+
+  const connectionMetadata = buildConnectionMetadata(transformedField, path);
+  options.connectionMetadata.push(connectionMetadata);
+
+  const connectionArguments = buildConnectionArguments(
+    transformedField,
+    connectionDirective,
+  );
+
+  const handle = {
+    name: connectionArguments.handler ?? CONNECTION,
+    key: connectionArguments.key,
+    filters: connectionArguments.filters,
+  };
+
+  const {direction} = connectionMetadata;
+  if (direction != null) {
+    const selections = transformConnectionSelections(
+      this.getContext(),
+      transformedField,
+      nullableType,
+      direction,
+      connectionArguments,
+    );
+    transformedField = {
+      ...transformedField,
+      selections,
+    };
+  }
+  return {
+    ...transformedField,
+    directives: transformedField.directives.filter(
+      directive => directive !== connectionDirective,
+    ),
+    handles: transformedField.handles
+      ? [...transformedField.handles, handle]
+      : [handle],
+  };
+}
+
+function buildConnectionArguments(
+  field: LinkedField,
+  connectionDirective: Directive,
+): ConnectionArguments {
+  const {
+    handler,
+    key,
+    label,
+    filters: literalFilters,
+  } = getLiteralArgumentValues(connectionDirective.args);
+  if (handler != null && typeof handler !== 'string') {
+    const handleArg = connectionDirective.args.find(arg => arg.name === 'key');
+    throw createUserError(
+      `Expected the ${HANDLER} argument to @${connectionDirective.name} to ` +
+        `be a string literal for field ${field.name}.`,
+      [handleArg?.value?.loc ?? connectionDirective.loc],
+    );
+  }
+  if (typeof key !== 'string') {
+    const keyArg = connectionDirective.args.find(arg => arg.name === 'key');
+    throw createUserError(
+      `Expected the ${KEY} argument to @${connectionDirective.name} to be a ` +
+        `string literal for field ${field.name}.`,
+      [keyArg?.value?.loc ?? connectionDirective.loc],
+    );
+  }
+  const postfix = field.alias || field.name;
+  if (!key.endsWith('_' + postfix)) {
+    const keyArg = connectionDirective.args.find(arg => arg.name === 'key');
+    throw createUserError(
+      `Expected the ${KEY} argument to @${connectionDirective.name} to be of ` +
+        `form <SomeName>_${postfix}, got '${key}'. ` +
+        'For a detailed explanation, check out ' +
+        'https://facebook.github.io/relay/docs/en/pagination-container.html#connection',
+      [keyArg?.value?.loc ?? connectionDirective.loc],
+    );
+  }
+  if (
+    literalFilters != null &&
+    (!Array.isArray(literalFilters) ||
+      literalFilters.some(filter => typeof filter !== 'string'))
+  ) {
+    const filtersArg = connectionDirective.args.find(
+      arg => arg.name === 'filters',
+    );
+    throw createUserError(
+      `Expected the 'filters' argument to @${connectionDirective.name} to be ` +
+        'a string literal.',
+      [filtersArg?.value?.loc ?? connectionDirective.loc],
+    );
+  }
+
+  let filters = literalFilters;
+  if (filters == null) {
+    const generatedFilters = field.args
+      .filter(
+        arg =>
+          !ConnectionInterface.isConnectionCall({
+            name: arg.name,
+            value: null,
+          }),
+      )
+      .map(arg => arg.name);
+    filters = generatedFilters.length !== 0 ? generatedFilters : null;
+  }
+
+  let stream = null;
+  if (connectionDirective.name === STREAM_CONNECTION) {
+    const initialCountArg = connectionDirective.args.find(
+      arg => arg.name === 'initial_count',
+    );
+    const ifArg = connectionDirective.args.find(arg => arg.name === 'if');
+    if (!RelayFeatureFlags.ENABLE_INCREMENTAL_DELIVERY) {
+      if (
+        ifArg == null ||
+        ifArg.value.kind !== 'Variable' ||
+        ifArg.value.variableName !== VARIABLE_NAME
+      ) {
+        throw createUserError(
+          `The @stream_connection directive requires an 'if: $${VARIABLE_NAME}' ` +
+            'argument. This is a temporary restriction during rollout of ' +
+            'incremental data delivery.',
+          [(ifArg?.value ?? connectionDirective).loc],
+        );
+      }
+    }
+
+    if (label != null && typeof label !== 'string') {
+      const labelArg = connectionDirective.args.find(
+        arg => arg.name === 'label',
+      );
+      throw createUserError(
+        `Expected the 'label' argument to @${
+          connectionDirective.name
+        } to be a string literal for field ${field.name}.`,
+        [labelArg?.value?.loc ?? connectionDirective.loc],
+      );
+    }
+    stream = {if: ifArg, initialCount: initialCountArg, label: label ?? key};
+  }
+
+  return {
+    handler,
+    key,
+    filters: (filters: $FlowFixMe),
+    stream,
+  };
+}
+
+function buildConnectionMetadata(
+  field: LinkedField,
+  path: Array<?string>,
+): ConnectionMetadata {
+  const pathHasPlural = path.includes(null);
+  const firstArg = findArg(field, FIRST);
+  const lastArg = findArg(field, LAST);
   let direction = null;
   let countArg = null;
   let cursorArg = null;
   if (firstArg && !lastArg) {
     direction = 'forward';
     countArg = firstArg;
-    cursorArg = findArg(transformedField, AFTER);
+    cursorArg = findArg(field, AFTER);
   } else if (lastArg && !firstArg) {
     direction = 'backward';
     countArg = lastArg;
-    cursorArg = findArg(transformedField, BEFORE);
+    cursorArg = findArg(field, BEFORE);
+  } else if (lastArg && firstArg) {
+    direction = 'bidirectional';
+    // TODO(T26511885) Maybe add connection metadata to this case
   }
   const countVariable =
     countArg && countArg.value.kind === 'Variable'
@@ -147,87 +342,29 @@ function visitLinkedField(field: LinkedField, options: Options): LinkedField {
     cursorArg && cursorArg.value.kind === 'Variable'
       ? cursorArg.value.variableName
       : null;
-  options.connectionMetadata.push({
+  return {
     count: countVariable,
     cursor: cursorVariable,
     direction,
-    path: pathHasPlural ? null : ([...options.path]: any),
-  });
-  options.path.pop();
-
-  const {key, filters} = getLiteralArgumentValues(connectionDirective.args);
-  invariant(
-    typeof key === 'string',
-    'RelayConnectionTransform: Expected the %s argument to @%s to ' +
-      'be a string literal for field %s',
-    KEY,
-    CONNECTION,
-    field.name,
-  );
-  const postfix = `${field.alias || field.name}`;
-  invariant(
-    key.endsWith('_' + postfix),
-    'RelayConnectionTransform: Expected the %s argument to @%s to ' +
-      'be of form <SomeName>_%s, but get %s. For detailed explanation, check out the dex page ' +
-      'https://facebook.github.io/relay/docs/pagination-container.html#connection-directive',
-    KEY,
-    CONNECTION,
-    postfix,
-    key,
-  );
-
-  const generateFilters = () => {
-    const filteredVariableArgs = field.args
-      .filter(
-        arg =>
-          !ConnectionInterface.isConnectionCall({
-            name: arg.name,
-            value: null,
-          }),
-      )
-      .map(arg => arg.name);
-    return filteredVariableArgs.length === 0 ? null : filteredVariableArgs;
-  };
-
-  const handle = {
-    name: CONNECTION,
-    key,
-    filters: filters || generateFilters(),
-  };
-
-  if (direction !== null) {
-    const fragment = generateConnectionFragment(
-      this.getContext(),
-      transformedField.type,
-      direction,
-    );
-    transformedField = {
-      ...transformedField,
-      selections: transformedField.selections.concat(fragment),
-    };
-  }
-  return {
-    ...transformedField,
-    directives: transformedField.directives.filter(
-      directive => directive.name !== CONNECTION,
-    ),
-    handles: transformedField.handles
-      ? [...transformedField.handles, handle]
-      : [handle],
+    path: pathHasPlural ? null : (path: any),
   };
 }
 
 /**
  * @internal
  *
- * Generates a fragment on the given type that fetches the minimal connection
- * fields in order to merge different pagination results together at runtime.
+ * Transforms the selections on a connection field, generating fields necessary
+ * for pagination (edges.cursor, pageInfo, etc) and adding/merging them with
+ * existing selections.
  */
-function generateConnectionFragment(
+function transformConnectionSelections(
   context: CompilerContext,
-  type: GraphQLType,
-  direction: 'forward' | 'backward',
-): InlineFragment {
+  field: LinkedField,
+  nullableType: GraphQLInterfaceType | GraphQLObjectType,
+  direction: 'forward' | 'backward' | 'bidirectional',
+  connectionArguments: ConnectionArguments,
+): Array<Selection> {
+  const derivedLocation = {kind: 'Derived', source: field.loc};
   const {
     CURSOR,
     EDGES,
@@ -239,53 +376,269 @@ function generateConnectionFragment(
     START_CURSOR,
   } = ConnectionInterface.get();
 
-  const compositeType = assertCompositeType(
-    SchemaUtils.getNullableType((type: $FlowFixMe)),
-  );
+  // Find existing edges/pageInfo selections
+  let edgesSelection: ?LinkedField;
+  let pageInfoSelection: ?LinkedField;
+  field.selections.forEach(selection => {
+    if (selection.kind === 'LinkedField') {
+      if (selection.name === EDGES) {
+        if (edgesSelection != null) {
+          throw createCompilerError(
+            `RelayConnectionTransform: Unexpected duplicate field '${EDGES}'.`,
+            [edgesSelection.loc, selection.loc],
+          );
+        }
+        edgesSelection = selection;
+        return;
+      } else if (selection.name === PAGE_INFO) {
+        if (pageInfoSelection != null) {
+          throw createCompilerError(
+            `RelayConnectionTransform: Unexpected duplicate field '${PAGE_INFO}'.`,
+            [pageInfoSelection.loc, selection.loc],
+          );
+        }
+        pageInfoSelection = selection;
+        return;
+      }
+    }
+  });
+  // If streaming is enabled, construct directives to apply to the edges/
+  // pageInfo fields
+  let streamDirective;
+  let deferDirective;
+  const stream = connectionArguments.stream;
+  if (stream != null) {
+    streamDirective = {
+      args: [
+        stream.if,
+        stream.initialCount,
+        {
+          kind: 'Argument',
+          loc: derivedLocation,
+          metadata: null,
+          name: 'label',
+          type: GraphQLString,
+          value: {
+            kind: 'Literal',
+            loc: derivedLocation,
+            metadata: null,
+            value: stream.label,
+          },
+        },
+      ].filter(Boolean),
+      kind: 'Directive',
+      loc: derivedLocation,
+      metadata: null,
+      name: 'stream',
+    };
+    deferDirective = {
+      args: [
+        stream.if,
+        {
+          kind: 'Argument',
+          loc: derivedLocation,
+          metadata: null,
+          name: 'label',
+          type: GraphQLString,
+          value: {
+            kind: 'Literal',
+            loc: derivedLocation,
+            metadata: null,
+            value: stream.label + '$' + PAGE_INFO,
+          },
+        },
+      ].filter(Boolean),
+      kind: 'Directive',
+      loc: derivedLocation,
+      metadata: null,
+      name: 'defer',
+    };
+  }
+  // For backwards compatibility with earlier versions of this transform,
+  // edges/pageInfo have to be generated as non-aliased fields (since product
+  // code may be accessing the non-aliased response keys). But for streaming
+  // mode we need to generate @stream/@defer directives on these fields *and*
+  // we prefer to avoid generating extra selections (we want one payload per
+  // item, not two as could happen with separate @stream directives on the
+  // aliased and non-aliased edges fields). So we keep things simple by
+  // disallowing aliases on edges/pageInfo in streaming mode.
+  if (edgesSelection && edgesSelection.alias != null) {
+    if (stream) {
+      throw createUserError(
+        `@stream_connection does not support aliasing the '${EDGES}' field.`,
+        [edgesSelection.loc],
+      );
+    }
+    edgesSelection = null;
+  }
+  if (pageInfoSelection && pageInfoSelection.alias != null) {
+    if (stream) {
+      throw createUserError(
+        `@stream_connection does not support aliasing the '${PAGE_INFO}' field.`,
+        [pageInfoSelection.loc],
+      );
+    }
+    pageInfoSelection = null;
+  }
 
-  let pageInfo = PAGE_INFO;
+  // Separately create transformed versions of edges/pageInfo so that we can
+  // later replace the originals at the same point within the selection array
+  let transformedEdgesSelection: ?LinkedField = edgesSelection;
+  let transformedPageInfoSelection: ?(
+    | LinkedField
+    | InlineFragment
+  ) = pageInfoSelection;
+  const edgesType = nullableType.getFields()[EDGES].type;
+  const pageInfoType = nullableType.getFields()[PAGE_INFO].type;
+  if (transformedEdgesSelection == null) {
+    transformedEdgesSelection = {
+      alias: null,
+      args: [],
+      directives: [],
+      handles: null,
+      kind: 'LinkedField',
+      loc: derivedLocation,
+      metadata: null,
+      name: EDGES,
+      selections: [],
+      type: edgesType,
+    };
+  }
+  if (transformedPageInfoSelection == null) {
+    transformedPageInfoSelection = {
+      alias: null,
+      args: [],
+      directives: [],
+      handles: null,
+      kind: 'LinkedField',
+      loc: derivedLocation,
+      metadata: null,
+      name: PAGE_INFO,
+      selections: [],
+      type: pageInfoType,
+    };
+  }
+
+  // Generate (additional) fields on pageInfo and add to the transformed
+  // pageInfo field
+  const pageInfoRawType = SchemaUtils.getRawType(pageInfoType);
+  let pageInfoText;
   if (direction === 'forward') {
-    pageInfo += `{
+    pageInfoText = `fragment PageInfo on ${String(pageInfoRawType)} {
       ${END_CURSOR}
       ${HAS_NEXT_PAGE}
     }`;
+  } else if (direction === 'backward') {
+    pageInfoText = `fragment PageInfo on ${String(pageInfoRawType)}  {
+      ${HAS_PREV_PAGE}
+      ${START_CURSOR}
+    }`;
   } else {
-    pageInfo += `{
+    pageInfoText = `fragment PageInfo on ${String(pageInfoRawType)}  {
+      ${END_CURSOR}
+      ${HAS_NEXT_PAGE}
       ${HAS_PREV_PAGE}
       ${START_CURSOR}
     }`;
   }
-
-  const fragmentString = `fragment ConnectionFragment on ${String(
-    compositeType,
-  )} {
-      ${EDGES} {
-        ${CURSOR}
-        ${NODE} {
-          __typename # rely on GenerateRequisiteFieldTransform to add "id"
-        }
-      }
-      ${pageInfo}
-    }`;
-
-  const ast = parse(fragmentString);
-  const fragmentAST = ast.definitions[0];
-  invariant(
-    fragmentAST && fragmentAST.kind === 'FragmentDefinition',
-    'RelayConnectionTransform: Expected a fragment definition AST.',
-  );
-  const fragment = RelayParser.transform(context.clientSchema, fragmentAST);
-  invariant(
-    fragment && fragment.kind === 'Fragment',
-    'RelayConnectionTransform: Expected a connection fragment.',
-  );
-  return {
-    directives: [],
-    kind: 'InlineFragment',
-    metadata: null,
-    selections: fragment.selections,
-    typeCondition: compositeType,
+  const pageInfoAst = parse(pageInfoText);
+  const pageInfoFragment = RelayParser.transform(context.clientSchema, [
+    pageInfoAst.definitions[0],
+  ])[0];
+  if (transformedPageInfoSelection.kind !== 'LinkedField') {
+    throw createCompilerError(
+      'RelayConnectionTransform: Expected generated pageInfo selection to be ' +
+        'a LinkedField',
+      [field.loc],
+    );
+  }
+  transformedPageInfoSelection = {
+    ...transformedPageInfoSelection,
+    selections: [
+      ...transformedPageInfoSelection.selections,
+      {
+        directives: [],
+        kind: 'InlineFragment',
+        loc: derivedLocation,
+        metadata: null,
+        typeCondition: pageInfoFragment.type,
+        selections: pageInfoFragment.selections,
+      },
+    ],
   };
+  // When streaming the pageInfo field has to be deferred
+  if (deferDirective != null) {
+    transformedPageInfoSelection = {
+      directives: [deferDirective],
+      kind: 'InlineFragment',
+      loc: derivedLocation,
+      metadata: null,
+      typeCondition: nullableType,
+      selections: [transformedPageInfoSelection],
+    };
+  }
+
+  // Generate additional fields on edges and append to the transformed edges
+  // selection
+  const edgeText = `
+    fragment Edges on ${String(SchemaUtils.getRawType(edgesType))} {
+      ${CURSOR}
+      ${NODE} {
+        __typename # rely on GenerateRequisiteFieldTransform to add "id"
+      }
+    }
+  `;
+  const edgeAst = parse(edgeText);
+  const edgeFragment = RelayParser.transform(context.clientSchema, [
+    edgeAst.definitions[0],
+  ])[0];
+  // When streaming the edges field needs @stream
+  transformedEdgesSelection = {
+    ...transformedEdgesSelection,
+    directives:
+      streamDirective != null
+        ? [...transformedEdgesSelection.directives, streamDirective]
+        : transformedEdgesSelection.directives,
+    selections: [
+      ...transformedEdgesSelection.selections,
+      {
+        directives: [],
+        kind: 'InlineFragment',
+        loc: derivedLocation,
+        metadata: null,
+        typeCondition: edgeFragment.type,
+        selections: edgeFragment.selections,
+      },
+    ],
+  };
+  // Copy the original selections, replacing edges/pageInfo (if present)
+  // with the generated locations. This is to maintain the original field
+  // ordering.
+  const selections = field.selections.map(selection => {
+    if (
+      transformedEdgesSelection != null &&
+      edgesSelection != null &&
+      selection === edgesSelection
+    ) {
+      return transformedEdgesSelection;
+    } else if (
+      transformedPageInfoSelection != null &&
+      pageInfoSelection != null &&
+      selection === pageInfoSelection
+    ) {
+      return transformedPageInfoSelection;
+    } else {
+      return selection;
+    }
+  });
+  // If edges/pageInfo were missing, append the generated versions instead.
+  if (edgesSelection == null && transformedEdgesSelection != null) {
+    selections.push(transformedEdgesSelection);
+  }
+  if (pageInfoSelection == null && transformedPageInfoSelection != null) {
+    selections.push(transformedPageInfoSelection);
+  }
+  return selections;
 }
 
 function findArg(field: LinkedField, argName: string): ?Argument {
@@ -305,33 +658,26 @@ function findArg(field: LinkedField, argName: string): ?Argument {
  * technically possible to remove this restriction if this pattern becomes
  * common/necessary.
  */
-function validateConnectionSelection(
-  definitionName: string,
-  field: LinkedField,
-): void {
+function validateConnectionSelection(field: LinkedField): void {
   const {EDGES} = ConnectionInterface.get();
 
-  invariant(
-    findArg(field, FIRST) || findArg(field, LAST),
-    'RelayConnectionTransform: Expected field `%s: %s` to have a %s or %s ' +
-      'argument in document `%s`.',
-    field.name,
-    field.type,
-    FIRST,
-    LAST,
-    definitionName,
-  );
-  invariant(
-    field.selections.some(
+  if (!findArg(field, FIRST) && !findArg(field, LAST)) {
+    throw createUserError(
+      `Expected field '${field.name}' to have a '${FIRST}' or '${LAST}' ` +
+        'argument.',
+      [field.loc],
+    );
+  }
+  if (
+    !field.selections.some(
       selection => selection.kind === 'LinkedField' && selection.name === EDGES,
-    ),
-    'RelayConnectionTransform: Expected field `%s: %s` to have a %s ' +
-      'selection in document `%s`.',
-    field.name,
-    field.type,
-    EDGES,
-    definitionName,
-  );
+    )
+  ) {
+    throw createUserError(
+      `Expected field '${field.name}' to have an '${EDGES}' selection.`,
+      [field.loc],
+    );
+  }
 }
 
 /**
@@ -344,9 +690,11 @@ function validateConnectionSelection(
  *   subfields.
  */
 function validateConnectionType(
-  definitionName: string,
-  type: GraphQLType,
+  field: LinkedField,
+  nullableType: GraphQLInterfaceType | GraphQLObjectType,
+  connectionDirective: Directive,
 ): void {
+  const directiveName = connectionDirective.name;
   const {
     CURSOR,
     EDGES,
@@ -358,107 +706,114 @@ function validateConnectionType(
     START_CURSOR,
   } = ConnectionInterface.get();
 
-  const typeWithFields = SchemaUtils.assertTypeWithFields(
-    SchemaUtils.getNullableType((type: $FlowFixMe)),
-  );
-  const typeFields = typeWithFields.getFields();
+  const typeName = String(nullableType);
+  const typeFields = nullableType.getFields();
   const edges = typeFields[EDGES];
 
-  invariant(
-    edges,
-    'RelayConnectionTransform: Expected type `%s` to have an %s field in ' +
-      'document `%s`.',
-    type,
-    EDGES,
-    definitionName,
-  );
+  if (edges == null) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES}' field`,
+      [field.loc],
+    );
+  }
 
   const edgesType = SchemaUtils.getNullableType(edges.type);
-  invariant(
-    edgesType instanceof GraphQLList,
-    'RelayConnectionTransform: Expected `%s` field on type `%s` to be a ' +
-      'list type in document `%s`.',
-    EDGES,
-    type,
-    definitionName,
-  );
+  if (!(edgesType instanceof GraphQLList)) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES}' field that returns ` +
+        'a list of objects.',
+      [field.loc],
+    );
+  }
   const edgeType = SchemaUtils.getNullableType(edgesType.ofType);
-  invariant(
-    edgeType instanceof GraphQLObjectType,
-    'RelayConnectionTransform: Expected %s field on type `%s` to be a list ' +
-      'of objects in document `%s`.',
-    EDGES,
-    type,
-    definitionName,
-  );
+  if (
+    !(edgeType instanceof GraphQLObjectType) &&
+    !(edgeType instanceof GraphQLInterfaceType)
+  ) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES}' field that returns ` +
+        'a list of objects.',
+      [field.loc],
+    );
+  }
 
   const node = edgeType.getFields()[NODE];
-  invariant(
-    node,
-    'RelayConnectionTransform: Expected type `%s` to have an %s.%s field in ' +
-      'document `%s`.',
-    type,
-    EDGES,
-    NODE,
-    definitionName,
-  );
+  if (node == null) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES} { ${NODE} }' field ` +
+        'that returns an object, interface, or union.',
+      [field.loc],
+    );
+  }
   const nodeType = SchemaUtils.getNullableType(node.type);
-  invariant(
-    nodeType instanceof GraphQLInterfaceType ||
+  if (
+    !(
+      nodeType instanceof GraphQLInterfaceType ||
       nodeType instanceof GraphQLUnionType ||
-      nodeType instanceof GraphQLObjectType,
-    'RelayConnectionTransform: Expected type `%s` to have an %s.%s field' +
-      'for which the type is an interface, object, or union in document `%s`.',
-    type,
-    EDGES,
-    NODE,
-    definitionName,
-  );
+      nodeType instanceof GraphQLObjectType
+    )
+  ) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES} { ${NODE} }' field ` +
+        'that returns an object, interface, or union.',
+      [field.loc],
+    );
+  }
 
   const cursor = edgeType.getFields()[CURSOR];
-  invariant(
-    cursor &&
-      SchemaUtils.getNullableType(cursor.type) instanceof GraphQLScalarType,
-    'RelayConnectionTransform: Expected type `%s` to have an ' +
-      '%s.%s field for which the type is a scalar in document `%s`.',
-    type,
-    EDGES,
-    CURSOR,
-    definitionName,
-  );
+  if (
+    cursor == null ||
+    !(SchemaUtils.getNullableType(cursor.type) instanceof GraphQLScalarType)
+  ) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have an '${EDGES} { ${CURSOR} }' field ` +
+        'that returns a scalar value.',
+      [field.loc],
+    );
+  }
 
   const pageInfo = typeFields[PAGE_INFO];
-  invariant(
-    pageInfo,
-    'RelayConnectionTransform: Expected type `%s` to have a %s field ' +
-      'in document `%s`.',
-    type,
-    PAGE_INFO,
-    definitionName,
-  );
+  if (pageInfo == null) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have a '${PAGE_INFO}' field that returns ` +
+        'an object.',
+      [field.loc],
+    );
+  }
   const pageInfoType = SchemaUtils.getNullableType(pageInfo.type);
-  invariant(
-    pageInfoType instanceof GraphQLObjectType,
-    'RelayConnectionTransform: Expected type `%s` to have a %s field for ' +
-      'which the type is an object in document `%s`.',
-    type,
-    PAGE_INFO,
-    definitionName,
-  );
+  if (!(pageInfoType instanceof GraphQLObjectType)) {
+    throw createUserError(
+      `@${directiveName} used on invalid field '${field.name}'. Expected the ` +
+        `field type '${typeName}' to have a '${PAGE_INFO}' field that ` +
+        'returns an object.',
+      [field.loc],
+    );
+  }
 
   [END_CURSOR, HAS_NEXT_PAGE, HAS_PREV_PAGE, START_CURSOR].forEach(
     fieldName => {
       const pageInfoField = pageInfoType.getFields()[fieldName];
-      invariant(
-        pageInfoField &&
+      if (
+        pageInfoField == null ||
+        !(
           SchemaUtils.getNullableType(pageInfoField.type) instanceof
-            GraphQLScalarType,
-        'RelayConnectionTransform: Expected type `%s` to have an ' +
-          '%s field for which the type is an scalar in document `%s`.',
-        pageInfo.type,
-        fieldName,
-        definitionName,
-      );
+          GraphQLScalarType
+        )
+      ) {
+        throw createUserError(
+          `@${directiveName} used on invalid field '${field.name}'. Expected ` +
+            `the field type '${typeName}' to have a '${PAGE_INFO} { ${fieldName} }' ` +
+            'field returns a scalar.',
+          [field.loc],
+        );
+      }
     },
   );
 }

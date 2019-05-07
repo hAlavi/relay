@@ -1,24 +1,23 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @flow
- * @providesModule RelayViewerHandleTransform
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
-// TODO T21875029 ../../../relay-runtime/util/RelayDefaultHandleKey
-const {DEFAULT_HANDLE_KEY} = require('RelayDefaultHandleKey');
+const CompilerContext = require('../../core/GraphQLCompilerContext');
+const IRTransformer = require('../../core/GraphQLIRTransformer');
+
+const {getRawType} = require('../../core/GraphQLSchemaUtils');
 const {GraphQLObjectType} = require('graphql');
-const {IRTransformer, SchemaUtils} = require('graphql-compiler');
+const {DEFAULT_HANDLE_KEY} = require('relay-runtime');
 
-import type {CompilerContext, LinkedField} from 'graphql-compiler';
-
-const {getRawType} = SchemaUtils;
+import type {LinkedField} from '../../core/GraphQLIR';
 
 const ID = 'id';
 const VIEWER_HANDLE = 'viewer';
@@ -44,6 +43,12 @@ function relayViewerHandleTransform(context: CompilerContext): CompilerContext {
 function visitLinkedField(field: LinkedField): ?LinkedField {
   const transformedNode = this.traverse(field);
   if (getRawType(field.type).name !== VIEWER_TYPE) {
+    return transformedNode;
+  }
+  // In case a viewer field has arguments, we shouldn't give it a global
+  // identity. This only applies if the name is 'viewer' because a mutation
+  // field might also be the Viewer type.
+  if (field.args.length > 0 && field.name === 'viewer') {
     return transformedNode;
   }
   let handles = transformedNode.handles;

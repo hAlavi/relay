@@ -1,10 +1,9 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule createClassicNode
  * @flow
  * @format
  */
@@ -19,14 +18,13 @@ const getFragmentNameParts = require('./getFragmentNameParts');
 const invariant = require('./invariant');
 
 import type {BabelState} from './BabelPluginRelay';
-import typeof BabelTypes from 'babel-types';
 import type {DefinitionNode} from 'graphql';
 
 /**
  * Relay Classic transforms to inline generated content.
  */
 function createClassicNode(
-  t: BabelTypes,
+  t: $FlowFixMe,
   path: Object,
   graphqlDefinition: DefinitionNode,
   state: BabelState,
@@ -112,6 +110,10 @@ function createClassicAST(t, definition) {
   const visitors = {
     Directive(node) {
       switch (node.name.value) {
+        case 'inline':
+          throw new Error(
+            '@inline is only available in pure RelayModern mode.',
+          );
         case 'argumentDefinitions':
           if (argumentDefinitions) {
             throw new Error(
@@ -150,6 +152,7 @@ function createClassicAST(t, definition) {
         );
         switch (directive.name.value) {
           case 'arguments':
+          case 'uncheckedArguments_DEPRECATED':
             const fragmentArgumentsObject = {};
             // $FlowFixMe graphql 0.12.2
             directive.arguments.forEach(argNode => {

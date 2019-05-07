@@ -16,7 +16,7 @@ yarn add react react-dom react-relay
 Relay Modern requires a Babel plugin to convert GraphQL to runtime artifacts:
 
 ```sh
-yarn add --dev babel-plugin-relay
+yarn add --dev babel-plugin-relay graphql
 ```
 
 Add `"relay"` to the list of plugins your `.babelrc` file:
@@ -31,9 +31,28 @@ Add `"relay"` to the list of plugins your `.babelrc` file:
 
 Please note that the `"relay"` plugin should run before other plugins or
 presets to ensure the `graphql` template literals are correctly transformed. See
-Babel's [documentation on this topic](https://babeljs.io/docs/plugins/#plugin-preset-ordering).
+Babel's [documentation on this topic](https://babeljs.io/docs/plugins/#pluginpreset-ordering).
 
-See the [Migration Setup](./migration-setup.html) guide if upgrading an existing Relay app.
+Alternatively, instead of using `babel-plugin-relay`, you can use Relay with [babel-plugin-macros](https://github.com/kentcdodds/babel-plugin-macros). After installing `babel-plugin-macros` and adding it to your Babel config:
+
+```javascript
+const graphql = require('babel-plugin-relay/macro');
+```
+
+If you need to configure `babel-plugin-relay` further (e.g. to enable `compat` mode), you can do so by [specifying the options in a number of ways](https://github.com/kentcdodds/babel-plugin-macros/blob/master/other/docs/user.md#config-experimental).
+
+For example:
+
+```
+// babel-plugin-macros.config.js
+module.exports = {
+  // ...
+  // Other macros config
+  relay: {
+    compat: true,
+  },
+}
+```
 
 ## Set up relay-compiler
 
@@ -55,7 +74,7 @@ or if you are using jsx:
 
 ```js
 "scripts": {
-  "relay": "relay-compiler --src ./src --schema path/schema.graphql --extensions js jsx"
+  "relay": "relay-compiler --src ./src --schema ./schema.graphql --extensions js jsx"
 }
 ```
 
@@ -68,7 +87,7 @@ yarn run relay
 Alternatively, you can pass the `--watch` option to watch for file changes in your source code and automatically re-generate the compiled artifacts (**Note:** Requires [watchman](https://facebook.github.io/watchman) to be installed):
 
 ```sh
-yarn run relay -- --watch
+yarn run relay --watch
 ```
 
 
@@ -83,7 +102,7 @@ However, Relay Modern expects modern JavaScript global types (`Map`, `Set`,
 `Promise`, `Object.assign`) to be defined. If you support older browsers and
 devices which may not yet provide these natively, consider including a global
 polyfill in your bundled application, such as [core-js][] or
-[babel-polyfill](https://babeljs.io/docs/usage/polyfill/).
+[@babel/polyfill](https://babeljs.io/docs/usage/polyfill/).
 
 A polyfilled environment for Relay using [core-js][] to support older browsers
 might look like:

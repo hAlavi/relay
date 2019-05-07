@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,30 +10,28 @@
 
 'use strict';
 
-const RelayConcreteNode = require('RelayConcreteNode');
-const RelayModernTestUtils = require('RelayModernTestUtils');
+const cloneRelayHandleSourceField = require('../cloneRelayHandleSourceField');
+const getRelayHandleKey = require('../../util/getRelayHandleKey');
 
-const cloneRelayHandleSourceField = require('cloneRelayHandleSourceField');
-const getRelayHandleKey = require('getRelayHandleKey');
-
-const {generateWithTransforms, matchers} = RelayModernTestUtils;
-const {LINKED_FIELD, LINKED_HANDLE} = RelayConcreteNode;
+const {LINKED_FIELD, LINKED_HANDLE} = require('../../util/RelayConcreteNode');
+const {generateWithTransforms, matchers} = require('relay-test-utils');
 
 describe('cloneRelayHandleSourceField()', () => {
   let selections;
 
   beforeEach(() => {
     expect.extend(matchers);
-    const input = generateWithTransforms(
-      `
-      fragment A on User {
-        address @__clientField(handle: "test") {
-          street
+    const {TestQuery} = generateWithTransforms(`
+      query TestQuery {
+        me {
+          address @__clientField(handle: "test") {
+            street
+          }
         }
       }
-    `,
-    );
-    selections = input.A.selections;
+    `);
+    // Get the selections on `me`.
+    selections = TestQuery.operation.selections[0].selections;
   });
 
   it('returns a clone of the source, with the same name as the handle', () => {

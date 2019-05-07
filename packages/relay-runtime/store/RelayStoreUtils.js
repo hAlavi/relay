@@ -1,28 +1,28 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayStoreUtils
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayConcreteNode = require('RelayConcreteNode');
+const RelayConcreteNode = require('../util/RelayConcreteNode');
 
-const getRelayHandleKey = require('getRelayHandleKey');
+const getRelayHandleKey = require('../util/getRelayHandleKey');
 const invariant = require('invariant');
-const stableCopy = require('stableCopy');
+const stableCopy = require('../util/stableCopy');
 
-import type {Variables} from '../util/RelayRuntimeTypes';
 import type {
-  ConcreteArgument,
-  ConcreteField,
-  ConcreteHandle,
-} from 'RelayConcreteNode';
+  NormalizationHandle,
+  NormalizationArgument,
+  NormalizationField,
+} from '../util/NormalizationNode';
+import type {ReaderArgument, ReaderField} from '../util/ReaderNode';
+import type {Variables} from '../util/RelayRuntimeTypes';
 
 export type Arguments = {[argName: string]: mixed};
 
@@ -33,7 +33,7 @@ const {VARIABLE} = RelayConcreteNode;
  * names. Guaranteed to return a result with stable ordered nested values.
  */
 function getArgumentValues(
-  args: Array<ConcreteArgument>,
+  args: $ReadOnlyArray<NormalizationArgument | ReaderArgument>,
   variables: Variables,
 ): Arguments {
   const values = {};
@@ -59,7 +59,7 @@ function getArgumentValues(
  * used here for consistency.
  */
 function getHandleStorageKey(
-  handleField: ConcreteHandle,
+  handleField: NormalizationHandle,
   variables: Variables,
 ): string {
   const {handle, key, name, args, filters} = handleField;
@@ -81,7 +81,7 @@ function getHandleStorageKey(
  * used here for consistency.
  */
 function getStorageKey(
-  field: ConcreteField | ConcreteHandle,
+  field: NormalizationField | NormalizationHandle | ReaderField,
   variables: Variables,
 ): string {
   if (field.storageKey) {
@@ -121,6 +121,7 @@ function formatStorageKey(name: string, argValues: ?Arguments): string {
     if (argValues.hasOwnProperty(argName)) {
       const value = argValues[argName];
       if (value != null) {
+        // $FlowFixMe(>=0.95.0) JSON.stringify can return undefined
         values.push(argName + ':' + JSON.stringify(value));
       }
     }
@@ -146,6 +147,10 @@ function getStableVariableValue(name: string, variables: Variables): mixed {
  */
 const RelayStoreUtils = {
   FRAGMENTS_KEY: '__fragments',
+  FRAGMENT_OWNER_KEY: '__fragmentOwner',
+  FRAGMENT_PROP_NAME_KEY: '__fragmentPropName',
+  MODULE_COMPONENT_KEY: '__module_component',
+  MODULE_OPERATION_KEY: '__module_operation',
   ID_KEY: '__id',
   REF_KEY: '__ref',
   REFS_KEY: '__refs',

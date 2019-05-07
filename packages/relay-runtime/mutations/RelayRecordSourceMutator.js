@@ -1,30 +1,29 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayRecordSourceMutator
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
-const RelayModernRecord = require('RelayModernRecord');
+const RelayModernRecord = require('../store/RelayModernRecord');
 
 const invariant = require('invariant');
 
-const {EXISTENT} = require('RelayRecordState');
+const {EXISTENT} = require('../store/RelayRecordState');
 const {
   UNPUBLISH_FIELD_SENTINEL,
   UNPUBLISH_RECORD_SENTINEL,
-} = require('RelayStoreUtils');
+} = require('../store/RelayStoreUtils');
 
+import type {RecordState} from '../store/RelayRecordState';
+import type {MutableRecordSource, RecordSource} from '../store/RelayStoreTypes';
+import type {Record} from '../util/RelayCombinedEnvironmentTypes';
 import type {DataID} from '../util/RelayRuntimeTypes';
-import type {RecordState} from 'RelayRecordState';
-import type {MutableRecordSource, RecordSource} from 'RelayStoreTypes';
-import type {Record} from 'react-relay/classic/environment/RelayCombinedEnvironmentTypes';
 
 /**
  * @internal
@@ -61,6 +60,48 @@ class RelayRecordSourceMutator {
     this._base = base;
     this._sink = sink;
     this.__sources = [sink, base];
+  }
+
+  /**
+   * **UNSTABLE**
+   * This method is likely to be removed in an upcoming release
+   * and should not be relied upon.
+   * TODO T41593196: Remove unstable_getRawRecordWithChanges
+   */
+  unstable_getRawRecordWithChanges(dataID: DataID): ?Record {
+    const baseRecord = this._base.get(dataID);
+    const sinkRecord = this._sink.get(dataID);
+    if (sinkRecord === undefined) {
+      if (baseRecord == null) {
+        return baseRecord;
+      }
+      const nextRecord = RelayModernRecord.clone(baseRecord);
+      if (__DEV__) {
+        // Prevent mutation of a record from outside the store.
+        RelayModernRecord.freeze(nextRecord);
+      }
+      return nextRecord;
+    } else if (sinkRecord === null) {
+      return null;
+    } else if (sinkRecord === UNPUBLISH_RECORD_SENTINEL) {
+      return undefined;
+    } else if (baseRecord != null) {
+      const nextRecord = RelayModernRecord.update(baseRecord, sinkRecord);
+      if (__DEV__) {
+        if (nextRecord !== baseRecord) {
+          // Prevent mutation of a record from outside the store.
+          RelayModernRecord.freeze(nextRecord);
+        }
+      }
+      return nextRecord;
+    } else {
+      const nextRecord = RelayModernRecord.clone(sinkRecord);
+      if (__DEV__) {
+        // Prevent mutation of a record from outside the store.
+        RelayModernRecord.freeze(nextRecord);
+      }
+      return nextRecord;
+    }
   }
 
   _createBackupRecord(dataID: DataID): void {
@@ -149,7 +190,7 @@ class RelayRecordSourceMutator {
   }
 
   copyFieldsFromRecord(record: Record, sinkID: DataID): void {
-    this.copyFields(RelayModernRecord.getDataID(record), sinkID);
+    this._createBackupRecord(sinkID);
     const sink = this._getSinkRecord(sinkID);
     RelayModernRecord.copyFields(record, sink);
     this._setSentinelFieldsInBackupRecord(sinkID, sink);

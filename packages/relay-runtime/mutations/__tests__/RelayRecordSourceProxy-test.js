@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,16 +10,18 @@
 
 'use strict';
 
-const RelayInMemoryRecordSource = require('RelayInMemoryRecordSource');
-const RelayModernTestUtils = require('RelayModernTestUtils');
-const RelayRecordProxy = require('RelayRecordProxy');
-const RelayRecordSourceMutator = require('RelayRecordSourceMutator');
-const RelayRecordSourceProxy = require('RelayRecordSourceProxy');
-const RelayStoreUtils = require('RelayStoreUtils');
+const RelayInMemoryRecordSource = require('../../store/RelayInMemoryRecordSource');
+const RelayModernTestUtils = require('relay-test-utils');
+const RelayRecordProxy = require('../RelayRecordProxy');
+const RelayRecordSourceMutator = require('../RelayRecordSourceMutator');
+const RelayRecordSourceProxy = require('../RelayRecordSourceProxy');
+const RelayStoreUtils = require('../../store/RelayStoreUtils');
 
-const simpleClone = require('simpleClone');
+const defaultGetDataID = require('../../store/defaultGetDataID');
 
-const {createOperationSelector} = require('RelayModernOperationSelector');
+const {
+  createOperationDescriptor,
+} = require('../../store/RelayModernOperationDescriptor');
 
 const {
   ID_KEY,
@@ -89,7 +91,7 @@ describe('RelayRecordSourceProxy', () => {
     };
     backupData = {};
     sinkData = {};
-    baseData = simpleClone(initialData);
+    baseData = RelayModernTestUtils.simpleClone(initialData);
     baseSource = new RelayInMemoryRecordSource(baseData);
     backupSource = new RelayInMemoryRecordSource(backupData);
     sinkSource = new RelayInMemoryRecordSource(sinkData);
@@ -98,7 +100,7 @@ describe('RelayRecordSourceProxy', () => {
       sinkSource,
       backupSource,
     );
-    store = new RelayRecordSourceProxy(mutator);
+    store = new RelayRecordSourceProxy(mutator, defaultGetDataID);
   });
 
   describe('get()', () => {
@@ -187,8 +189,7 @@ describe('RelayRecordSourceProxy', () => {
   describe('commitPayload()', () => {
     const {generateAndCompile} = RelayModernTestUtils;
     it('override current fields ', () => {
-      const {Query} = generateAndCompile(
-        `
+      const {Query} = generateAndCompile(`
         query Query {
           node(id: "sf") {
             id
@@ -196,9 +197,8 @@ describe('RelayRecordSourceProxy', () => {
             name
           }
         }
-      `,
-      );
-      const operationSelector = createOperationSelector(Query, {});
+      `);
+      const operationDescriptor = createOperationDescriptor(Query, {});
       const rawPayload = {
         node: {
           id: 'sf',
@@ -206,7 +206,7 @@ describe('RelayRecordSourceProxy', () => {
           name: 'SF',
         },
       };
-      store.commitPayload(operationSelector, rawPayload);
+      store.commitPayload(operationDescriptor, rawPayload);
       expect(sinkData.sf).toEqual({
         [ID_KEY]: 'sf',
         [TYPENAME_KEY]: 'Page',
@@ -216,8 +216,7 @@ describe('RelayRecordSourceProxy', () => {
     });
 
     it('applies new records ', () => {
-      const {Query} = generateAndCompile(
-        `
+      const {Query} = generateAndCompile(`
         query Query {
           node(id: "seattle") {
             id
@@ -225,9 +224,8 @@ describe('RelayRecordSourceProxy', () => {
             name
           }
         }
-      `,
-      );
-      const operationSelector = createOperationSelector(Query, {});
+      `);
+      const operationDescriptor = createOperationDescriptor(Query, {});
       const rawPayload = {
         node: {
           id: 'seattle',
@@ -235,7 +233,7 @@ describe('RelayRecordSourceProxy', () => {
           name: 'Seattle',
         },
       };
-      store.commitPayload(operationSelector, rawPayload);
+      store.commitPayload(operationDescriptor, rawPayload);
       expect(sinkData.seattle).toEqual({
         [ID_KEY]: 'seattle',
         [TYPENAME_KEY]: 'Page',
@@ -250,10 +248,13 @@ describe('RelayRecordSourceProxy', () => {
         handlerName: {update: handlerFunction},
       };
       const handlerProvider = name => handlers[name];
-      store = new RelayRecordSourceProxy(mutator, handlerProvider);
+      store = new RelayRecordSourceProxy(
+        mutator,
+        defaultGetDataID,
+        handlerProvider,
+      );
 
-      const {Query} = generateAndCompile(
-        `
+      const {Query} = generateAndCompile(`
         query Query {
           node(id: "sf") {
             id
@@ -261,9 +262,8 @@ describe('RelayRecordSourceProxy', () => {
             name @__clientField(handle: "handlerName")
           }
         }
-      `,
-      );
-      const operationSelector = createOperationSelector(Query, {});
+      `);
+      const operationDescriptor = createOperationDescriptor(Query, {});
       const rawPayload = {
         node: {
           id: 'sf',
@@ -271,7 +271,7 @@ describe('RelayRecordSourceProxy', () => {
           name: 'SF',
         },
       };
-      store.commitPayload(operationSelector, rawPayload);
+      store.commitPayload(operationDescriptor, rawPayload);
 
       const fieldPayload = {
         args: {},
@@ -281,6 +281,38 @@ describe('RelayRecordSourceProxy', () => {
         handleKey: '__name_handlerName',
       };
       expect(handlerFunction).toBeCalledWith(store, fieldPayload);
+    });
+
+    it('uses user-defined getDataID', () => {
+      const getDataID = jest.fn((field, typename) => {
+        return `${typename}:${field.id}`;
+      });
+      store = new RelayRecordSourceProxy(mutator, getDataID);
+      const {Query} = generateAndCompile(`
+        query Query {
+          node(id: "seattle") {
+            id
+            __typename
+            name
+          }
+        }
+      `);
+      const operationDescriptor = createOperationDescriptor(Query, {});
+      const rawPayload = {
+        node: {
+          id: 'seattle',
+          __typename: 'Page',
+          name: 'Seattle',
+        },
+      };
+      store.commitPayload(operationDescriptor, rawPayload);
+      expect(sinkData['Page:seattle']).toEqual({
+        [ID_KEY]: 'Page:seattle',
+        [TYPENAME_KEY]: 'Page',
+        id: 'seattle',
+        name: 'Seattle',
+      });
+      expect(getDataID).toBeCalledTimes(1);
     });
   });
 

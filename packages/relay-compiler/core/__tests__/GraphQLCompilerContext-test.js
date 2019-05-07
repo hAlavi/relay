@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -13,8 +13,8 @@
 describe('GraphQLCompilerContext', () => {
   let GraphQLCompilerContext;
   let RelayParser;
-  let RelayTestSchema;
-  let RelayModernTestUtils;
+  let TestSchema;
+  let matchers;
 
   let queryFoo;
   let fragmentBar;
@@ -22,39 +22,49 @@ describe('GraphQLCompilerContext', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    GraphQLCompilerContext = require('GraphQLCompilerContext');
-    RelayParser = require('RelayParser');
-    RelayTestSchema = require('RelayTestSchema');
-    RelayModernTestUtils = require('RelayModernTestUtils');
+    GraphQLCompilerContext = require('../GraphQLCompilerContext');
+    RelayParser = require('../RelayParser');
+    ({TestSchema, matchers} = require('relay-test-utils'));
 
-    expect.extend(RelayModernTestUtils.matchers);
-
-    [queryFoo, fragmentFoo, fragmentBar] = RelayParser.parse(
-      RelayTestSchema,
-      `
-      query Foo { node(id: 1) { ...Bar } }
-      fragment Foo on Node { id }
-      fragment Bar on Node { id }
-    `,
-    );
+    expect.extend(matchers);
   });
 
   describe('add()', () => {
     it('adds multiple roots', () => {
+      [queryFoo, fragmentBar] = RelayParser.parse(
+        TestSchema,
+        `
+          query Foo { node(id: 1) { ...Bar } }
+          fragment Bar on Node { id }
+        `,
+      );
       const context = [queryFoo, fragmentBar].reduce(
         (ctx, node) => ctx.add(node),
-        new GraphQLCompilerContext(RelayTestSchema),
+        new GraphQLCompilerContext(TestSchema),
       );
 
       expect(context.getRoot('Foo')).toBe(queryFoo);
       expect(context.getFragment('Bar')).toBe(fragmentBar);
     });
 
-    it('throws if the root names are not unique', () => {
+    it('throws if the document names are not unique', () => {
+      [queryFoo, fragmentBar] = RelayParser.parse(
+        TestSchema,
+        `
+          query Foo { node(id: 1) { ...Bar } }
+          fragment Bar on Node { id }
+        `,
+      );
+      [fragmentFoo] = RelayParser.parse(
+        TestSchema,
+        `
+          fragment Foo on Node { id }
+        `,
+      );
       expect(() => {
-        [queryFoo, fragmentFoo].reduce(
+        [queryFoo, fragmentBar, fragmentFoo].reduce(
           (ctx, node) => ctx.add(node),
-          new GraphQLCompilerContext(RelayTestSchema),
+          new GraphQLCompilerContext(TestSchema),
         );
       }).toFailInvariant(
         'GraphQLCompilerContext: Duplicate document named `Foo`. GraphQL ' +

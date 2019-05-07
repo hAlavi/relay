@@ -1,10 +1,9 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayNetworkLoggerTransaction
  * @flow
  * @format
  */
@@ -13,28 +12,28 @@
 
 const invariant = require('invariant');
 
+import type {RequestParameters} from '../util/RelayConcreteNode';
 import type {CacheConfig, Variables} from '../util/RelayRuntimeTypes';
-import type {RequestNode} from 'RelayConcreteNode';
-import type {ExecutePayload, UploadableMap} from 'RelayNetworkTypes';
+import type {GraphQLResponse, UploadableMap} from './RelayNetworkTypes';
 
 let queryID = 1;
 
 export interface IRelayNetworkLoggerTransaction {
   constructor(config: TransactionConfig): void;
   addLog(label: string, ...values: Array<any>): void;
-  commitLogs(error: ?Error, payload: ?ExecutePayload, status?: ?string): void;
-  flushLogs(error: ?Error, payload: ?ExecutePayload, status?: ?string): void;
+  commitLogs(error: ?Error, payload: ?GraphQLResponse, status?: ?string): void;
+  flushLogs(error: ?Error, payload: ?GraphQLResponse, status?: ?string): void;
   markCommitted(): void;
   getCacheConfig(): ?CacheConfig;
   getIdentifier(): string;
   getLogsToPrint(): Array<RelayNetworkLog>;
-  getRequest(): RequestNode;
+  getRequest(): RequestParameters;
   getUploadables(): ?UploadableMap;
   getVariables(): Variables;
 }
 
 type TransactionConfig = {
-  request: RequestNode,
+  request: RequestParameters,
   variables: Variables,
   cacheConfig: ?CacheConfig,
   uploadables?: ?UploadableMap,
@@ -57,7 +56,7 @@ class RelayNetworkLoggerTransaction implements IRelayNetworkLoggerTransaction {
   _hasCommittedLogs = false;
   _id: number;
   _logs: Array<RelayNetworkLog> = [];
-  _request: RequestNode;
+  _request: RequestParameters;
   _uploadables: ?UploadableMap;
   _variables: Variables;
 
@@ -82,7 +81,7 @@ class RelayNetworkLoggerTransaction implements IRelayNetworkLoggerTransaction {
     this._logs = [];
   }
 
-  printLogs(error: ?Error, payload: ?ExecutePayload, status?: ?string): void {
+  printLogs(error: ?Error, payload: ?GraphQLResponse, status?: ?string): void {
     /* eslint-disable no-console */
     const transactionId = this.getIdentifier();
     console.groupCollapsed &&
@@ -95,7 +94,7 @@ class RelayNetworkLoggerTransaction implements IRelayNetworkLoggerTransaction {
     /* eslint-enable no-console */
   }
 
-  commitLogs(error: ?Error, payload: ?ExecutePayload, status?: ?string): void {
+  commitLogs(error: ?Error, payload: ?GraphQLResponse, status?: ?string): void {
     invariant(
       this._hasCommittedLogs === false,
       `The logs for transaction #${this._id} have already been committed.`,
@@ -108,7 +107,7 @@ class RelayNetworkLoggerTransaction implements IRelayNetworkLoggerTransaction {
     this._hasCommittedLogs = true;
   }
 
-  flushLogs(error: ?Error, payload: ?ExecutePayload, status?: ?string): void {
+  flushLogs(error: ?Error, payload: ?GraphQLResponse, status?: ?string): void {
     invariant(
       this._hasCommittedLogs === false,
       `The logs for transaction #${this._id} have already been committed.`,
@@ -127,13 +126,13 @@ class RelayNetworkLoggerTransaction implements IRelayNetworkLoggerTransaction {
 
   getLogsToPrint(
     error: ?Error,
-    payload: ?ExecutePayload,
+    payload: ?GraphQLResponse,
     status: ?string,
   ): Array<RelayNetworkLog> {
     return this._logs;
   }
 
-  getRequest(): RequestNode {
+  getRequest(): RequestParameters {
     return this._request;
   }
 

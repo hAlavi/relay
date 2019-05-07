@@ -1,8 +1,23 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+
 schema {
   query: Query
   mutation: Mutation
   subscription: Subscription
 }
+
+directive @customDirective(level: Int!) on FIELD
+
+directive @defer(
+  label: String!
+  if: Boolean = true
+) on FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+directive @stream(
+  label: String!
+  initial_count: Int!
+  if: Boolean = true
+) on FIELD
 
 type Query {
   checkinSearchQuery(query: CheckinSearchInput): CheckinSearchResult
@@ -93,6 +108,15 @@ input ApplicationRequestDeleteAllInput {
 input CommentCreateInput {
   clientMutationId: String
   feedbackId: ID
+  feedback: CommentfeedbackFeedback
+}
+
+input CommentfeedbackFeedback {
+  comment: FeedbackcommentComment
+}
+
+input FeedbackcommentComment {
+  feedback: CommentfeedbackFeedback
 }
 
 input CommentCreateSubscriptionInput {
@@ -145,6 +169,16 @@ input CheckinSearchInput {
   inputs: [CheckinSearchInput]
 }
 
+type PlainCommentBody {
+  text: Text
+}
+
+type MarkdownCommentBody {
+  text: Text
+}
+
+union CommentBody = PlainCommentBody | MarkdownCommentBody
+
 type Comment implements Node {
   actor: Actor
   actors: [Actor]
@@ -157,12 +191,13 @@ type Comment implements Node {
   body: Text
   canViewerComment: Boolean
   canViewerLike: Boolean
+  commentBody(supported: [String!]!): CommentBody
   comments(first: Int, last: Int, orderby: String): CommentsConnection
   doesViewerLike: Boolean
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -171,6 +206,14 @@ type Comment implements Node {
   message: Text
   name: String
   profilePicture(size: [Int], preset: PhotoSize): Image
+  # This is added in RelayTestSchema
+  # profilePicture2(
+  #   size: [Int],
+  #   preset: PhotoSize,
+  #   cropPosition: CropPosition,
+  #   fileExtension: FileExtension,
+  #   additionalParameters: JSON
+  # ): Image
   segments(first: Int): Segments
   screennames: [Screenname]
   subscribeStatus: String
@@ -246,7 +289,7 @@ type Feedback implements Node {
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -348,7 +391,7 @@ interface Node {
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -375,11 +418,13 @@ interface Actor {
   birthdate: Date
   emailAddresses: [String]
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
   name: String
+  nameRenderer(supported: [String!]!): UserNameRenderer
+  nameRenderable(supported: [String!]!): UserNameRenderable
   profilePicture(size: [Int], preset: PhotoSize): Image
   screennames: [Screenname]
   subscribeStatus: String
@@ -410,7 +455,7 @@ type Page implements Node & Actor {
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -418,6 +463,8 @@ type Page implements Node & Actor {
   likeSentence: Text
   message: Text
   name: String
+  nameRenderer(supported: [String!]!): UserNameRenderer
+  nameRenderable(supported: [String!]!): UserNameRenderable
   profilePicture(size: [Int], preset: PhotoSize): Image
   segments(first: Int): Segments
   screennames: [Screenname]
@@ -510,7 +557,7 @@ type PhotoStory implements FeedUnit & Node {
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -555,7 +602,7 @@ type Story implements FeedUnit & Node {
   emailAddresses: [String]
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
-  friends(after: ID, before: ID, first: Int, last: ID, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
+  friends(after: ID, before: ID, first: Int, last: Int, orderby: [String], find: String, isViewerFriend: Boolean, if: Boolean, unless: Boolean, traits: [PersonalityTraits]): FriendsConnection
   hometown: Page
   id: ID!
   lastName: String
@@ -629,7 +676,49 @@ type UnfriendResponsePayload {
   formerFriend: User
 }
 
-type User implements Named & Node & Actor {
+scalar JSDependency
+
+interface HasJsField {
+  js(module: String): JSDependency
+}
+
+type PlainUserNameRenderer implements HasJsField & UserNameRenderable {
+  plaintext: String
+  data: PlainUserNameData
+  user: User
+  js(module: String): JSDependency
+  name: String
+}
+
+type PlainUserNameData {
+  id: ID
+  text: String
+}
+
+type MarkdownUserNameRenderer implements HasJsField & UserNameRenderable {
+  markdown: String
+  data: MarkdownUserNameData
+  user: User
+  js(module: String): JSDependency
+  name: String
+}
+
+type MarkdownUserNameData {
+  id: ID
+  markup: String
+}
+
+type CustomNameRenderer {
+  customField: String
+}
+
+union UserNameRenderer = PlainUserNameRenderer | MarkdownUserNameRenderer | CustomNameRenderer
+
+interface UserNameRenderable {
+  name: String
+}
+
+type User implements Named & Node & Actor & HasJsField {
   actor: Actor
   actors: [Actor]
   actorCount: Int
@@ -645,13 +734,14 @@ type User implements Named & Node & Actor {
   comments(first: Int, last: Int, orderby: String): CommentsConnection
   doesViewerLike: Boolean
   emailAddresses: [String]
+  environment: Environment
   feedback: Feedback
   firstName(if: Boolean, unless: Boolean): String
   friends(
     after: ID
     before: ID
     first: Int
-    last: ID
+    last: Int
     orderby: [String]
     named: String
     scale: Float
@@ -663,14 +753,21 @@ type User implements Named & Node & Actor {
   ): FriendsConnection
   hometown: Page
   id: ID!
+  js(module: String): JSDependency
   lastName: String
   likers(first: Int): LikersOfContentConnection
   likeSentence: Text
   message: Text
   name: String
+  nameRenderer(supported: [String!]!): UserNameRenderer
+  nameRenderable(supported: [String!]!): UserNameRenderable
+  nameRenderers(supported: [String!]!): [UserNameRenderer]
   storySearch(query: StorySearchInput): [Story]
   storyCommentSearch(query: StoryCommentSearchInput): [Comment]
-  profilePicture(size: [Int], preset: PhotoSize): Image
+  profilePicture(
+    size: [Int],
+    preset: PhotoSize
+  ): Image
   profile_picture(scale: Float): Image
   segments(first: Int): Segments
   screennames: [Screenname]
@@ -764,10 +861,22 @@ enum TopLevelCommentsOrdering {
   toplevel
 }
 
+# This is added in RelayTestSchema
+# enum CropPosition {
+#   TOP
+#   CENTER
+#   BOTTOM
+#   LEFT
+#   RIGHT
+# }
+#
+# enum FileExtension {
+#   JPG
+#   PNG
+# }
+
 type Settings {
   cache_id: ID
   notificationSounds: Boolean
   notifications(environment: Environment): Boolean
 }
-
-directive @customDirective(level: Int!) on FIELD

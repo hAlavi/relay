@@ -1,23 +1,24 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule RelayViewerHandler
- * @flow
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
-const generateRelayClientID = require('generateRelayClientID');
+const {generateClientID} = require('../../store/ClientID');
+const {ROOT_ID} = require('../../store/RelayStoreUtils');
 
-const {ROOT_ID} = require('RelayStoreUtils');
+import type {
+  HandleFieldPayload,
+  RecordSourceProxy,
+} from '../../store/RelayStoreTypes';
 
-import type {HandleFieldPayload, RecordSourceProxy} from 'RelayStoreTypes';
-
-const VIEWER_ID = generateRelayClientID(ROOT_ID, 'viewer');
+const VIEWER_ID = generateClientID(ROOT_ID, 'viewer');
 const VIEWER_TYPE = 'Viewer';
 
 /**

@@ -1,25 +1,23 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @flow
- * @providesModule RelayGenerateTypeNameTransform
+ * @flow strict-local
  * @format
  */
 
 'use strict';
 
+const CompilerContext = require('../core/GraphQLCompilerContext');
+const IRTransformer = require('../core/GraphQLIRTransformer');
+const SchemaUtils = require('../core/GraphQLSchemaUtils');
+
 const {hasUnaliasedSelection} = require('./RelayTransformUtils');
 const {assertLeafType} = require('graphql');
-const {
-  CompilerContext,
-  IRTransformer,
-  SchemaUtils,
-} = require('graphql-compiler');
 
-import type {LinkedField, ScalarField} from 'graphql-compiler';
+import type {LinkedField, ScalarField} from '../core/GraphQLIR';
 
 const {isAbstractType} = SchemaUtils;
 
@@ -44,6 +42,7 @@ function relayGenerateTypeNameTransform(
     args: [],
     directives: [],
     handles: null,
+    loc: {kind: 'Generated'},
     metadata: null,
     name: TYPENAME_KEY,
     type: stringType,

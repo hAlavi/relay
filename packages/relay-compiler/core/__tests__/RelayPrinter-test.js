@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -10,18 +10,16 @@
 
 'use strict';
 
-require('configureForRelayOSS');
+const GraphQLCompilerContext = require('../GraphQLCompilerContext');
+const GraphQLIRPrinter = require('../GraphQLIRPrinter');
+const RelayParser = require('../RelayParser');
 
-const GraphQLCompilerContext = require('GraphQLCompilerContext');
-const RelayParser = require('RelayParser');
-const GraphQLIRPrinter = require('GraphQLIRPrinter');
-const RelayTestSchema = require('RelayTestSchema');
-const {generateTestsFromFixtures} = require('RelayModernTestUtils');
+const {TestSchema, generateTestsFromFixtures} = require('relay-test-utils');
 
 describe('GraphQLIRPrinter', () => {
   generateTestsFromFixtures(`${__dirname}/fixtures/printer`, text => {
-    const ast = RelayParser.parse(RelayTestSchema, text);
-    const context = new GraphQLCompilerContext(RelayTestSchema).addAll(ast);
+    const ast = RelayParser.parse(TestSchema, text);
+    const context = new GraphQLCompilerContext(TestSchema).addAll(ast);
     const documents = [];
     context.forEachDocument(doc => {
       documents.push(GraphQLIRPrinter.print(doc));

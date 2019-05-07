@@ -1,31 +1,30 @@
 /**
- * Copyright (c) 2013-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *
- * @providesModule createRelayNetworkLogger
  * @flow
  * @format
  */
 
 'use strict';
 
-const RelayConcreteNode = require('RelayConcreteNode');
+const RelayConcreteNode = require('../util/RelayConcreteNode');
 
-const {convertFetch, convertSubscribe} = require('ConvertToExecuteFunction');
+const {convertFetch, convertSubscribe} = require('./ConvertToExecuteFunction');
 
+import type {RequestParameters} from '../util/RelayConcreteNode';
 import type {Variables} from '../util/RelayRuntimeTypes';
-import type {ConcreteRequest} from 'RelayConcreteNode';
-import type {IRelayNetworkLoggerTransaction} from 'RelayNetworkLoggerTransaction';
+import type {IRelayNetworkLoggerTransaction} from './RelayNetworkLoggerTransaction';
 import type {
   ExecuteFunction,
   FetchFunction,
   SubscribeFunction,
-} from 'RelayNetworkTypes';
+} from './RelayNetworkTypes';
 
 export type GraphiQLPrinter = (
-  request: ConcreteRequest,
+  request: RequestParameters,
   variables: Variables,
 ) => string;
 
@@ -73,7 +72,7 @@ function wrapExecute(
 
     function addLogs(error, response, status) {
       // Only print GraphiQL links for non-batch requests.
-      if (graphiQLPrinter && request.kind === RelayConcreteNode.REQUEST) {
+      if (graphiQLPrinter) {
         transaction.addLog('GraphiQL', graphiQLPrinter(request, variables));
       }
       transaction.addLog('Cache Config', cacheConfig);
